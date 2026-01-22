@@ -26,17 +26,6 @@ data class Course(
             minCredits.toString()
         }
 
-    val departmentCode: String
-        get() = courseCode.takeWhile { it.isLetter() }
-
-    val courseNumber: String
-        get() = courseCode.dropWhile { it.isLetter() }
-
-    /**
-     * Format prerequisites/conditions for display
-     */
-    val prerequisitesDisplay: String?
-        get() = conditions?.joinToString(" ")?.trim()
 }
 
 @Serializable
