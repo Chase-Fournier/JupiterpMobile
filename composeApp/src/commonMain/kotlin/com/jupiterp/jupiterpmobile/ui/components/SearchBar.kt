@@ -1,4 +1,4 @@
-package com.jupiterp.ui.components
+package com.jupiterp.jupiterpmobile.ui.components
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -27,7 +27,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.jupiterp.domain.model.Department
+import com.jupiterp.jupiterpmobile.domain.model.Department
 import com.jupiterp.ui.theme.JupiterpTheme
 
 /**

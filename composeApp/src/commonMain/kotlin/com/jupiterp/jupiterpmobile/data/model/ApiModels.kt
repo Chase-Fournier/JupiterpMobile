@@ -1,4 +1,4 @@
-package com.jupiterp.data.model
+package com.jupiterp.jupiterpmobile.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

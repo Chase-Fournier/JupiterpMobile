@@ -1,11 +1,10 @@
 package com.jupiterp.jupiterpmobile.data.storage
-import com.jupiterp.domain.model.ScheduleSelection
-import com.jupiterp.domain.model.StoredSchedule
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**

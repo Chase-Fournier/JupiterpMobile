@@ -1,7 +1,13 @@
 package com.jupiterp.jupiterpmobile.data.repository
 
-import com.jupiterp.domain.model.*
 import com.jupiterp.jupiterpmobile.data.storage.LocalStorage
+import com.jupiterp.jupiterpmobile.domain.model.ClassMeeting
+import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+import com.jupiterp.jupiterpmobile.domain.model.Section
+import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
+import com.jupiterp.jupiterpmobile.domain.model.TimeSlot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

@@ -1,11 +1,13 @@
-package com.jupiterp.data.repository
+package com.jupiterp.jupiterpmobile.data.repository
 
-import com.jupiterp.data.api.JupiterpApiClient
-import com.jupiterp.data.model.CourseSearchParams
-import com.jupiterp.data.model.InstructorSearchParams
-import com.jupiterp.data.model.SectionSearchParams
-import com.jupiterp.data.model.toDomain
-import com.jupiterp.domain.model.*
+import com.jupiterp.jupiterpmobile.data.api.JupiterpApiClient
+import com.jupiterp.jupiterpmobile.data.model.CourseSearchParams
+import com.jupiterp.jupiterpmobile.data.model.InstructorSearchParams
+import com.jupiterp.jupiterpmobile.data.model.SectionSearchParams
+import com.jupiterp.jupiterpmobile.data.model.toDomain
+import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.Department
+import com.jupiterp.jupiterpmobile.domain.model.Instructor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 

@@ -1,6 +1,13 @@
-package com.jupiterp.data.api
+package com.jupiterp.jupiterpmobile.data.api
 
-import com.jupiterp.data.model.*
+import com.jupiterp.jupiterpmobile.data.model.CourseMinifiedResponse
+import com.jupiterp.jupiterpmobile.data.model.CourseResponse
+import com.jupiterp.jupiterpmobile.data.model.CourseSearchParams
+import com.jupiterp.jupiterpmobile.data.model.DepartmentResponse
+import com.jupiterp.jupiterpmobile.data.model.InstructorResponse
+import com.jupiterp.jupiterpmobile.data.model.InstructorSearchParams
+import com.jupiterp.jupiterpmobile.data.model.SectionResponse
+import com.jupiterp.jupiterpmobile.data.model.SectionSearchParams
 import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*

@@ -1,4 +1,4 @@
-package com.jupiterp.domain.model
+package com.jupiterp.jupiterpmobile.domain.model
 
 import com.jupiterp.jupiterpmobile.toOneDecimalString
 import kotlinx.serialization.Serializable

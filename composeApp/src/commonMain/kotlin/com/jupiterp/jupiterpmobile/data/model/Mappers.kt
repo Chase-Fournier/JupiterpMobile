@@ -1,6 +1,12 @@
-package com.jupiterp.data.model
+package com.jupiterp.jupiterpmobile.data.model
 
-import com.jupiterp.domain.model.*
+import com.jupiterp.jupiterpmobile.domain.model.ClassMeeting
+import com.jupiterp.jupiterpmobile.domain.model.Classtime
+import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.Department
+import com.jupiterp.jupiterpmobile.domain.model.Instructor
+import com.jupiterp.jupiterpmobile.domain.model.Location
+import com.jupiterp.jupiterpmobile.domain.model.Section
 
 /**
  * Mappers to convert API response models to domain models

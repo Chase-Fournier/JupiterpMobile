@@ -1,11 +1,9 @@
-package com.jupiterp.ui.components
+package com.jupiterp.jupiterpmobile.ui.components
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -18,8 +16,9 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.jupiterp.domain.model.Course
-import com.jupiterp.domain.model.Section
+import com.jupiterp.jupiterpmobile.domain.model.ClassMeeting
+import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.ui.theme.JupiterpTheme
 
 /**
@@ -339,7 +338,7 @@ fun CompactCourseCard(
                 )
 
                 // Meeting times
-                section.meetings.filterIsInstance<com.jupiterp.domain.model.ClassMeeting.InPerson>()
+                section.meetings.filterIsInstance<ClassMeeting.InPerson>()
                     .firstOrNull()?.let { meeting ->
                         Text(
                             text = "${meeting.classtime.days} ${meeting.classtime.timeRange}",

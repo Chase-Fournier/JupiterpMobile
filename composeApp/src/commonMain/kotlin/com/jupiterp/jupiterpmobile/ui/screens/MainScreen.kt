@@ -1,4 +1,4 @@
-package com.jupiterp.ui.screens
+package com.jupiterp.jupiterpmobile.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -27,12 +28,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.jupiterp.data.api.ApiState
-import com.jupiterp.domain.model.*
-import com.jupiterp.ui.components.*
+import com.jupiterp.jupiterpmobile.data.api.ApiState
+import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+import com.jupiterp.jupiterpmobile.domain.model.Section
+import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
+import com.jupiterp.jupiterpmobile.ui.components.CompactCourseCard
+import com.jupiterp.jupiterpmobile.ui.components.CourseCard
+import com.jupiterp.jupiterpmobile.ui.components.SolarSystemLoader
+import com.jupiterp.jupiterpmobile.ui.components.WeeklyScheduleView
 import com.jupiterp.ui.theme.JupiterpTheme
 import jupiterpmobile.composeapp.generated.resources.Res
-import jupiterpmobile.composeapp.generated.resources.jupiterp_icon
 import jupiterpmobile.composeapp.generated.resources.logo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -44,7 +51,6 @@ import org.jetbrains.compose.resources.painterResource
  * - Results appear above search bar as sheet expands upward
  * - Drag to expand/collapse
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     viewModel: MainViewModel,
@@ -356,11 +362,12 @@ fun MainScreen(
                                 .navigationBarsPadding()
                                 .padding(bottom = 8.dp)
                         ) {
-                            SearchBar(
+                            com.jupiterp.jupiterpmobile.ui.components.SearchBar(
                                 query = searchQuery,
                                 onQueryChange = viewModel::onSearchQueryChange,
                                 onSearch = viewModel::searchCourses,
-                                departments = (departmentsState as? ApiState.Success)?.data ?: emptyList(),
+                                departments = (departmentsState as? ApiState.Success)?.data
+                                    ?: emptyList(),
                                 selectedDepartment = selectedDepartment,
                                 onDepartmentSelect = viewModel::setDepartment,
                                 selectedGenEds = selectedGenEds,
@@ -906,7 +913,7 @@ private fun SettingsBottomSheet(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
-                                        Icons.Outlined.EventNote,
+                                        Icons.AutoMirrored.Outlined.EventNote,
                                         null,
                                         tint = JupiterpTheme.extendedColors.orange
                                     )

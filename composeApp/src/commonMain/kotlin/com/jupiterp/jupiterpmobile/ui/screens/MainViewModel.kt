@@ -1,12 +1,18 @@
-package com.jupiterp.ui.screens
+package com.jupiterp.jupiterpmobile.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jupiterp.data.api.ApiState
+import com.jupiterp.jupiterpmobile.data.api.ApiState
 import com.jupiterp.jupiterpmobile.data.repository.AddSectionResult
-import com.jupiterp.data.repository.CourseRepository
+import com.jupiterp.jupiterpmobile.data.repository.CourseRepository
 import com.jupiterp.jupiterpmobile.data.repository.ScheduleRepository
-import com.jupiterp.domain.model.*
+import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.Department
+import com.jupiterp.jupiterpmobile.domain.model.Instructor
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+import com.jupiterp.jupiterpmobile.domain.model.Section
+import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*

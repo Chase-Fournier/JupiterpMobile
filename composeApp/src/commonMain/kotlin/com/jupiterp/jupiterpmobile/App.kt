@@ -1,4 +1,4 @@
-package com.jupiterp
+package com.jupiterp.jupiterpmobile
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
@@ -6,9 +6,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.jupiterp.jupiterpmobile.data.repository.PreferencesRepository
-import com.jupiterp.di.allModules
-import com.jupiterp.ui.screens.MainScreen
-import com.jupiterp.ui.screens.MainViewModel
+import com.jupiterp.jupiterpmobile.di.allModules
+import com.jupiterp.jupiterpmobile.ui.screens.MainScreen
+import com.jupiterp.jupiterpmobile.ui.screens.MainViewModel
 import com.jupiterp.ui.theme.JupiterpTheme
 import org.koin.compose.KoinApplication
 import org.koin.compose.koinInject
