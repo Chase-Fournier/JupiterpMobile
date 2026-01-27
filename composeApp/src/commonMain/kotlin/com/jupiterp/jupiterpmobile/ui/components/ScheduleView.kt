@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
+import com.jupiterp.jupiterpmobile.domain.model.OtherScheduleItem
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.ui.theme.JupiterpTheme
 
@@ -32,6 +33,7 @@ import com.jupiterp.ui.theme.JupiterpTheme
 fun WeeklyScheduleView(
     scheduleBlocks: List<ScheduleBlock>,
     onBlockClick: (ScheduleBlock) -> Unit,
+    onRemoveBlock: (ScheduleBlock) -> Unit,
     modifier: Modifier = Modifier,
     startHour: Int = 8,
     endHour: Int = 22
@@ -148,7 +150,8 @@ fun WeeklyScheduleView(
                                     block = block,
                                     startHour = actualStartHour,
                                     hourHeight = hourHeight,
-                                    onClick = { onBlockClick(block) }
+                                    onClick = { onBlockClick(block) },
+                                    onRemove = { onRemoveBlock(block) }
                                 )
                             }
                     }
@@ -192,6 +195,7 @@ private fun ScheduleBlockView(
     startHour: Int,
     hourHeight: Dp,
     onClick: () -> Unit,
+    onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -207,6 +211,10 @@ private fun ScheduleBlockView(
     val textColor = getContrastColor(backgroundColor)
 
     var showInfoPopup by remember { mutableStateOf(false) }
+
+    // Parse course code into department and number (e.g., "CMSC132" -> "CMSC", "132")
+    val courseCode = block.selection.course.courseCode
+    val (department, courseNumber) = parseCourseCode(courseCode)
 
     Box(
         modifier = modifier
@@ -225,9 +233,9 @@ private fun ScheduleBlockView(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Course code
+            // Department (e.g., CMSC)
             Text(
-                text = block.selection.course.courseCode,
+                text = department,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = textColor,
@@ -235,25 +243,26 @@ private fun ScheduleBlockView(
                 overflow = TextOverflow.Ellipsis
             )
 
+            // Course number (e.g., 132)
+            Text(
+                text = courseNumber,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor.copy(alpha = 0.9f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
             // Location (if space permits)
-            if (block.duration >= 1f) {
+            if (block.duration >= 1.1f) {
                 Text(
                     text = block.meeting.location.display,
                     style = MaterialTheme.typography.labelSmall,
-                    color = textColor.copy(alpha = 0.8f),
+                    color = textColor.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-
-            // Time
-            Text(
-                text = "${block.meeting.classtime.startFormatted} - ${block.meeting.classtime.endFormatted}",
-                style = MaterialTheme.typography.labelSmall,
-                color = textColor.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 
@@ -261,7 +270,11 @@ private fun ScheduleBlockView(
     if (showInfoPopup) {
         ScheduleBlockInfoDialog(
             block = block,
-            onDismiss = { showInfoPopup = false }
+            onDismiss = { showInfoPopup = false },
+            onRemove = {
+                showInfoPopup = false
+                onRemove()
+            }
         )
     }
 }
@@ -272,7 +285,8 @@ private fun ScheduleBlockView(
 @Composable
 private fun ScheduleBlockInfoDialog(
     block: ScheduleBlock,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onRemove: () -> Unit
 ) {
     val scheduleColors = JupiterpTheme.extendedColors.scheduleColors
     val accentColor = scheduleColors[block.colorIndex % scheduleColors.size]
@@ -312,7 +326,7 @@ private fun ScheduleBlockInfoDialog(
                 InfoRow(
                     icon = Icons.Outlined.Tag,
                     label = "Section",
-                    value = block.selection.section.sectionCode
+                    value = if (block.selection.section.sectionCode == "---") "No section" else block.selection.section.sectionCode
                 )
 
                 // Time
@@ -352,6 +366,18 @@ private fun ScheduleBlockInfoDialog(
                     label = "Credits",
                     value = block.selection.course.credits
                 )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onRemove) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Remove", color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
@@ -421,4 +447,274 @@ private fun getContrastColor(backgroundColor: Color): Color {
     } else {
         Color.White
     }
+}
+
+/**
+ * Parse course code into department and number (e.g., "CMSC132" -> Pair("CMSC", "132"))
+ */
+private fun parseCourseCode(courseCode: String): Pair<String, String> {
+    val regex = Regex("^([A-Za-z]+)(\\d+.*)$")
+    val match = regex.find(courseCode)
+    return if (match != null) {
+        Pair(match.groupValues[1].uppercase(), match.groupValues[2])
+    } else {
+        Pair(courseCode, "")
+    }
+}
+
+/**
+ * Section displaying "Other" classes (async, weekend, TBA, no meetings)
+ */
+@Composable
+fun OtherClassesSection(
+    items: List<OtherScheduleItem>,
+    onRemoveItem: (OtherScheduleItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (items.isEmpty()) return
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.MoreHoriz,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = JupiterpTheme.extendedColors.textSecondary
+                )
+                Text(
+                    text = "Other",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = JupiterpTheme.extendedColors.textSecondary
+                )
+            }
+
+            // Group items by selection to avoid duplicates
+            val groupedItems = items.groupBy { it.selection }
+
+            groupedItems.forEach { (selection, selectionItems) ->
+                OtherClassCard(
+                    selection = selection,
+                    items = selectionItems,
+                    onRemove = { onRemoveItem(selectionItems.first()) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OtherClassCard(
+    selection: com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection,
+    items: List<OtherScheduleItem>,
+    onRemove: () -> Unit
+) {
+    val scheduleColors = JupiterpTheme.extendedColors.scheduleColors
+    val backgroundColor = scheduleColors[selection.colorIndex % scheduleColors.size]
+
+    var showDialog by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { showDialog = true })
+            },
+        shape = RoundedCornerShape(10.dp),
+        color = backgroundColor.copy(alpha = 0.3f)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = selection.course.courseCode,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (selection.section.sectionCode == "---") "No section" else selection.section.sectionCode,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = JupiterpTheme.extendedColors.textSecondary
+                )
+            }
+
+            // Show type badges
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                items.distinctBy { it::class }.forEach { item ->
+                    val (label, icon) = when (item) {
+                        is OtherScheduleItem.OnlineAsync -> "Async" to Icons.Outlined.CloudQueue
+                        is OtherScheduleItem.Weekend -> item.day.short to Icons.Outlined.Weekend
+                        is OtherScheduleItem.TBA -> "TBA" to Icons.Outlined.HelpOutline
+                        is OtherScheduleItem.NoMeetings -> "No meetings" to Icons.Outlined.EventBusy
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = JupiterpTheme.extendedColors.textSecondary
+                            )
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = JupiterpTheme.extendedColors.textSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDialog) {
+        OtherClassInfoDialog(
+            selection = selection,
+            items = items,
+            onDismiss = { showDialog = false },
+            onRemove = {
+                showDialog = false
+                onRemove()
+            }
+        )
+    }
+}
+
+@Composable
+private fun OtherClassInfoDialog(
+    selection: com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection,
+    items: List<OtherScheduleItem>,
+    onDismiss: () -> Unit,
+    onRemove: () -> Unit
+) {
+    val scheduleColors = JupiterpTheme.extendedColors.scheduleColors
+    val accentColor = scheduleColors[selection.colorIndex % scheduleColors.size]
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(accentColor)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = selection.course.courseCode,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = selection.course.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = JupiterpTheme.extendedColors.textSecondary
+                )
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                InfoRow(
+                    icon = Icons.Outlined.Tag,
+                    label = "Section",
+                    value = if (selection.section.sectionCode == "---") "No section" else selection.section.sectionCode
+                )
+
+                // Show meeting type info
+                items.distinctBy { it::class }.forEach { item ->
+                    when (item) {
+                        is OtherScheduleItem.OnlineAsync -> {
+                            InfoRow(
+                                icon = Icons.Outlined.CloudQueue,
+                                label = "Format",
+                                value = "Online Asynchronous"
+                            )
+                        }
+                        is OtherScheduleItem.Weekend -> {
+                            InfoRow(
+                                icon = Icons.Outlined.Weekend,
+                                label = "${item.day.displayName}",
+                                value = item.timeRange
+                            )
+                        }
+                        is OtherScheduleItem.TBA -> {
+                            InfoRow(
+                                icon = Icons.Outlined.HelpOutline,
+                                label = "Schedule",
+                                value = "To Be Announced"
+                            )
+                        }
+                        is OtherScheduleItem.NoMeetings -> {
+                            InfoRow(
+                                icon = Icons.Outlined.EventBusy,
+                                label = "Meetings",
+                                value = "No scheduled meetings"
+                            )
+                        }
+                    }
+                }
+
+                val instructors = selection.section.instructors.joinToString(", ")
+                if (instructors.isNotBlank()) {
+                    InfoRow(
+                        icon = Icons.Outlined.Person,
+                        label = "Instructor",
+                        value = instructors
+                    )
+                }
+
+                InfoRow(
+                    icon = Icons.Outlined.School,
+                    label = "Credits",
+                    value = selection.course.credits
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onRemove) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Remove", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = JupiterpTheme.extendedColors.orange)
+            }
+        }
+    )
 }

@@ -3,6 +3,8 @@ package com.jupiterp.jupiterpmobile.data.repository
 import com.jupiterp.jupiterpmobile.data.storage.LocalStorage
 import com.jupiterp.jupiterpmobile.domain.model.ClassMeeting
 import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
+import com.jupiterp.jupiterpmobile.domain.model.OtherScheduleItem
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
@@ -73,6 +75,41 @@ class ScheduleRepository(
         val selection = ScheduleSelection(
             course = course,
             section = section,
+            colorIndex = colorCounter++ % ScheduleColors.size
+        )
+
+        _currentSelections.update { it + selection }
+        persistCurrentSchedule()
+        return AddSectionResult.Success
+    }
+
+    /**
+     * Add a course without a section (for courses with no sections available)
+     * Creates a placeholder section to track the course
+     */
+    fun addCourseWithoutSection(course: Course): AddSectionResult {
+        val currentList = _currentSelections.value
+
+        // Check if course is already added (with placeholder section)
+        if (currentList.any { it.course.courseCode == course.courseCode && it.section.sectionCode == PLACEHOLDER_SECTION_CODE }) {
+            return AddSectionResult.AlreadyAdded
+        }
+
+        // Create a placeholder section
+        val placeholderSection = Section(
+            courseCode = course.courseCode,
+            sectionCode = PLACEHOLDER_SECTION_CODE,
+            instructors = emptyList(),
+            meetings = emptyList(),
+            openSeats = 0,
+            totalSeats = 0,
+            waitlist = 0,
+            holdfile = null
+        )
+
+        val selection = ScheduleSelection(
+            course = course,
+            section = placeholderSection,
             colorIndex = colorCounter++ % ScheduleColors.size
         )
 
@@ -185,23 +222,92 @@ class ScheduleRepository(
     }
 
     /**
-     * Get schedule blocks for rendering
+     * Get schedule blocks for rendering (M-F in-person and online sync)
      */
     fun getScheduleBlocks(): List<ScheduleBlock> {
+        val weekdays = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
         return _currentSelections.value.flatMap { selection ->
             selection.section.meetings.filterIsInstance<ClassMeeting.InPerson>().flatMap { meeting ->
-                meeting.classtime.daysList.map { day ->
-                    ScheduleBlock(
-                        selection = selection,
-                        meeting = meeting,
-                        day = day,
-                        startTime = meeting.classtime.start,
-                        endTime = meeting.classtime.end,
-                        colorIndex = selection.colorIndex
-                    )
+                meeting.classtime.daysList
+                    .filter { it in weekdays }
+                    .map { day ->
+                        ScheduleBlock(
+                            selection = selection,
+                            meeting = meeting,
+                            day = day,
+                            startTime = meeting.classtime.start,
+                            endTime = meeting.classtime.end,
+                            colorIndex = selection.colorIndex
+                        )
+                    }
+            }
+        }
+    }
+
+    /**
+     * Get "Other" items that don't fit on the M-F schedule grid
+     * (Online Async, Weekend classes, TBA, sections with no meetings)
+     */
+    fun getOtherItems(): List<OtherScheduleItem> {
+        val weekdays = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
+        val results = mutableListOf<OtherScheduleItem>()
+
+        for (selection in _currentSelections.value) {
+            val meetings = selection.section.meetings
+
+            // Check for sections with no meetings
+            if (meetings.isEmpty()) {
+                results.add(OtherScheduleItem.NoMeetings(selection, selection.colorIndex))
+                continue
+            }
+
+            // Check each meeting type
+            for (meeting in meetings) {
+                when (meeting) {
+                    is ClassMeeting.OnlineAsync -> {
+                        // Only add once per selection for async
+                        if (results.none { it is OtherScheduleItem.OnlineAsync && it.selection == selection }) {
+                            results.add(OtherScheduleItem.OnlineAsync(selection, selection.colorIndex))
+                        }
+                    }
+                    is ClassMeeting.TBA, is ClassMeeting.Unknown -> {
+                        if (results.none { it is OtherScheduleItem.TBA && it.selection == selection }) {
+                            results.add(OtherScheduleItem.TBA(selection, selection.colorIndex))
+                        }
+                    }
+                    is ClassMeeting.InPerson -> {
+                        // Check for weekend days
+                        for (day in meeting.classtime.daysList) {
+                            if (day !in weekdays) {
+                                results.add(OtherScheduleItem.Weekend(
+                                    selection = selection,
+                                    colorIndex = selection.colorIndex,
+                                    meeting = meeting,
+                                    day = day,
+                                    timeRange = meeting.classtime.timeRange
+                                ))
+                            }
+                        }
+                    }
+                    is ClassMeeting.OnlineSync -> {
+                        // Check for weekend days for online sync
+                        for (day in meeting.classtime.daysList) {
+                            if (day !in weekdays) {
+                                results.add(OtherScheduleItem.Weekend(
+                                    selection = selection,
+                                    colorIndex = selection.colorIndex,
+                                    meeting = meeting,
+                                    day = day,
+                                    timeRange = meeting.classtime.timeRange
+                                ))
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        return results
     }
 
     /**
@@ -303,6 +409,8 @@ class ScheduleRepository(
     }
 
     companion object {
+        const val PLACEHOLDER_SECTION_CODE = "---"
+
         val ScheduleColors = listOf(
             0xFFB3C8F2, 0xFFF2B3B3, 0xFFF2EFB3,
             0xFFB3F2E6, 0xFFDEB3F2, 0xFFB8F2B3,

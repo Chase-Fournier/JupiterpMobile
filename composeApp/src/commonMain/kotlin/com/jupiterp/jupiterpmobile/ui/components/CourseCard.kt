@@ -30,8 +30,10 @@ fun CourseCard(
     isExpanded: Boolean,
     onExpandToggle: () -> Unit,
     isSectionSelected: (String) -> Boolean,
+    isCourseSelected: Boolean,
     getInstructorRating: (String) -> Float?,
     onSectionToggle: (Section) -> Unit,
+    onAddCourseWithoutSection: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val rotationAngle by animateFloatAsState(
@@ -68,8 +70,10 @@ fun CourseCard(
                 CourseSections(
                     course = course,
                     isSectionSelected = isSectionSelected,
+                    isCourseSelected = isCourseSelected,
                     getInstructorRating = getInstructorRating,
-                    onSectionToggle = onSectionToggle
+                    onSectionToggle = onSectionToggle,
+                    onAddCourseWithoutSection = onAddCourseWithoutSection
                 )
             }
         }
@@ -203,8 +207,10 @@ private fun CourseHeader(
 private fun CourseSections(
     course: Course,
     isSectionSelected: (String) -> Boolean,
+    isCourseSelected: Boolean,
     getInstructorRating: (String) -> Float?,
     onSectionToggle: (Section) -> Unit,
+    onAddCourseWithoutSection: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -270,17 +276,76 @@ private fun CourseSections(
             modifier = Modifier.padding(vertical = 4.dp)
         )
 
-        // Section rows
-        course.sections?.forEach { section ->
-            val isSelected = isSectionSelected(section.sectionCode)
-            val instructorRating = section.instructors.firstOrNull()?.let { getInstructorRating(it) }
+        // Section rows or "No sections" message with add button
+        if (course.sections.isNullOrEmpty()) {
+            // No sections available - show add course button
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "No sections available",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = JupiterpTheme.extendedColors.textSecondary
+                        )
+                        Text(
+                            text = "Add to track this course",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JupiterpTheme.extendedColors.textSecondary.copy(alpha = 0.7f)
+                        )
+                    }
 
-            SectionRow(
-                section = section,
-                isSelected = isSelected,
-                instructorRating = instructorRating,
-                onToggle = { onSectionToggle(section) }
-            )
+                    Button(
+                        onClick = onAddCourseWithoutSection,
+                        enabled = !isCourseSelected,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = JupiterpTheme.extendedColors.orange,
+                            disabledContainerColor = JupiterpTheme.extendedColors.success.copy(alpha = 0.3f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isCourseSelected) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Added", style = MaterialTheme.typography.labelMedium)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        } else {
+            course.sections.forEach { section ->
+                val isSelected = isSectionSelected(section.sectionCode)
+                val instructorRating = section.instructors.firstOrNull()?.let { getInstructorRating(it) }
+
+                SectionRow(
+                    section = section,
+                    isSelected = isSelected,
+                    instructorRating = instructorRating,
+                    onToggle = { onSectionToggle(section) }
+                )
+            }
         }
     }
 }
@@ -323,8 +388,10 @@ fun CompactCourseCard(
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
+                    // Show "No section" for placeholder sections
+                    val sectionDisplay = if (section.sectionCode == "---") "No section" else section.sectionCode
                     Text(
-                        text = section.sectionCode,
+                        text = sectionDisplay,
                         style = MaterialTheme.typography.bodySmall,
                         color = JupiterpTheme.extendedColors.sectionCodes
                     )
@@ -337,15 +404,21 @@ fun CompactCourseCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Meeting times
-                section.meetings.filterIsInstance<ClassMeeting.InPerson>()
-                    .firstOrNull()?.let { meeting ->
-                        Text(
-                            text = "${meeting.classtime.days} ${meeting.classtime.timeRange}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = JupiterpTheme.extendedColors.textSecondary
-                        )
-                    }
+                // Meeting times (or "No meetings" for placeholder sections)
+                val inPersonMeeting = section.meetings.filterIsInstance<ClassMeeting.InPerson>().firstOrNull()
+                if (inPersonMeeting != null) {
+                    Text(
+                        text = "${inPersonMeeting.classtime.days} ${inPersonMeeting.classtime.timeRange}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                } else if (section.meetings.isEmpty()) {
+                    Text(
+                        text = "No scheduled meetings",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                }
             }
 
             IconButton(

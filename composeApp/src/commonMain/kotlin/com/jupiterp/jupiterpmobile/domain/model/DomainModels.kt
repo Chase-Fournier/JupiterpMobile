@@ -263,6 +263,35 @@ data class TimeSlot(
     }
 }
 
+// "Other" items that don't fit on the M-F schedule grid
+sealed class OtherScheduleItem {
+    abstract val selection: ScheduleSelection
+    abstract val colorIndex: Int
+
+    data class OnlineAsync(
+        override val selection: ScheduleSelection,
+        override val colorIndex: Int
+    ) : OtherScheduleItem()
+
+    data class Weekend(
+        override val selection: ScheduleSelection,
+        override val colorIndex: Int,
+        val meeting: ClassMeeting,
+        val day: DayOfWeek,
+        val timeRange: String
+    ) : OtherScheduleItem()
+
+    data class TBA(
+        override val selection: ScheduleSelection,
+        override val colorIndex: Int
+    ) : OtherScheduleItem()
+
+    data class NoMeetings(
+        override val selection: ScheduleSelection,
+        override val colorIndex: Int
+    ) : OtherScheduleItem()
+}
+
 /**
  * All Gen-Ed codes at UMD
  */

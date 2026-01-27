@@ -30,12 +30,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jupiterp.jupiterpmobile.data.api.ApiState
 import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.OtherScheduleItem
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import com.jupiterp.jupiterpmobile.ui.components.CompactCourseCard
 import com.jupiterp.jupiterpmobile.ui.components.CourseCard
+import com.jupiterp.jupiterpmobile.ui.components.OtherClassesSection
 import com.jupiterp.jupiterpmobile.ui.components.SolarSystemLoader
 import com.jupiterp.jupiterpmobile.ui.components.WeeklyScheduleView
 import com.jupiterp.ui.theme.JupiterpTheme
@@ -227,6 +229,7 @@ fun MainScreen(
                     selections = currentSelections,
                     totalCredits = viewModel.getTotalCredits(),
                     scheduleBlocks = viewModel.getScheduleBlocks(),
+                    otherItems = viewModel.getOtherItems(),
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
                     onRemoveSection = { code, section -> viewModel.removeSection(code, section) },
@@ -334,6 +337,9 @@ fun MainScreen(
                                                 it.course.courseCode == code && it.section.sectionCode == sec
                                             }
                                         },
+                                        isCourseSelected = { code ->
+                                            currentSelections.any { it.course.courseCode == code }
+                                        },
                                         getInstructorRating = { viewModel.getInstructorRating(it) },
                                         onSectionToggle = { course, section ->
                                             val isSelected = currentSelections.any {
@@ -345,6 +351,9 @@ fun MainScreen(
                                             } else {
                                                 viewModel.addSection(course, section)
                                             }
+                                        },
+                                        onAddCourseWithoutSection = { course ->
+                                            viewModel.addCourseWithoutSection(course)
                                         },
                                         hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
                                         modifier = Modifier.fillMaxSize()
@@ -392,8 +401,10 @@ private fun SearchResultsContent(
     expandedCourseCode: String?,
     onExpandToggle: (String) -> Unit,
     isSectionSelected: (String, String) -> Boolean,
+    isCourseSelected: (String) -> Boolean,
     getInstructorRating: (String) -> Float?,
     onSectionToggle: (Course, Section) -> Unit,
+    onAddCourseWithoutSection: (Course) -> Unit,
     hasActiveSearch: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -432,8 +443,10 @@ private fun SearchResultsContent(
                             isExpanded = course.courseCode == expandedCourseCode,
                             onExpandToggle = { onExpandToggle(course.courseCode) },
                             isSectionSelected = { isSectionSelected(course.courseCode, it) },
+                            isCourseSelected = isCourseSelected(course.courseCode),
                             getInstructorRating = getInstructorRating,
-                            onSectionToggle = { onSectionToggle(course, it) }
+                            onSectionToggle = { onSectionToggle(course, it) },
+                            onAddCourseWithoutSection = { onAddCourseWithoutSection(course) }
                         )
                     }
                 }
@@ -569,6 +582,7 @@ private fun ScheduleContent(
     selections: List<ScheduleSelection>,
     totalCredits: IntRange,
     scheduleBlocks: List<ScheduleBlock>,
+    otherItems: List<OtherScheduleItem>,
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onRemoveSection: (String, String) -> Unit,
@@ -614,9 +628,26 @@ private fun ScheduleContent(
                 WeeklyScheduleView(
                     scheduleBlocks = scheduleBlocks,
                     onBlockClick = { },
+                    onRemoveBlock = { block ->
+                        onRemoveSection(
+                            block.selection.course.courseCode,
+                            block.selection.section.sectionCode
+                        )
+                    },
                     modifier = Modifier.padding(8.dp)
                 )
             }
+
+            // Other classes section (async, weekend, TBA)
+            OtherClassesSection(
+                items = otherItems,
+                onRemoveItem = { item ->
+                    onRemoveSection(
+                        item.selection.course.courseCode,
+                        item.selection.section.sectionCode
+                    )
+                }
+            )
 
             // Collapsible selected courses
             Surface(

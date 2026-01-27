@@ -9,6 +9,7 @@ import com.jupiterp.jupiterpmobile.data.repository.ScheduleRepository
 import com.jupiterp.jupiterpmobile.domain.model.Course
 import com.jupiterp.jupiterpmobile.domain.model.Department
 import com.jupiterp.jupiterpmobile.domain.model.Instructor
+import com.jupiterp.jupiterpmobile.domain.model.OtherScheduleItem
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
@@ -231,6 +232,23 @@ class MainViewModel(
     }
 
     /**
+     * Add course without section (for courses with no sections available)
+     */
+    fun addCourseWithoutSection(course: Course) {
+        when (val result = scheduleRepository.addCourseWithoutSection(course)) {
+            is AddSectionResult.Success -> {
+                showSnackbar("Added ${course.courseCode}")
+            }
+            is AddSectionResult.AlreadyAdded -> {
+                showSnackbar("Course already in schedule")
+            }
+            is AddSectionResult.Conflict -> {
+                showSnackbar("Course already in schedule")
+            }
+        }
+    }
+
+    /**
      * Remove section from schedule
      */
     fun removeSection(courseCode: String, sectionCode: String) {
@@ -290,6 +308,13 @@ class MainViewModel(
      */
     fun getScheduleBlocks(): List<ScheduleBlock> {
         return scheduleRepository.getScheduleBlocks()
+    }
+
+    /**
+     * Get "Other" items (async, weekend, TBA classes)
+     */
+    fun getOtherItems(): List<OtherScheduleItem> {
+        return scheduleRepository.getOtherItems()
     }
 
     /**
