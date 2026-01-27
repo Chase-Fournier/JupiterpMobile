@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -559,7 +560,7 @@ private fun OtherClassCard(
                     val (label, icon) = when (item) {
                         is OtherScheduleItem.OnlineAsync -> "Async" to Icons.Outlined.CloudQueue
                         is OtherScheduleItem.Weekend -> item.day.short to Icons.Outlined.Weekend
-                        is OtherScheduleItem.TBA -> "TBA" to Icons.Outlined.HelpOutline
+                        is OtherScheduleItem.TBA -> "TBA" to Icons.AutoMirrored.Outlined.HelpOutline
                         is OtherScheduleItem.NoMeetings -> "No meetings" to Icons.Outlined.EventBusy
                     }
 
@@ -668,7 +669,7 @@ private fun OtherClassInfoDialog(
                         }
                         is OtherScheduleItem.TBA -> {
                             InfoRow(
-                                icon = Icons.Outlined.HelpOutline,
+                                icon = Icons.AutoMirrored.Outlined.HelpOutline,
                                 label = "Schedule",
                                 value = "To Be Announced"
                             )
