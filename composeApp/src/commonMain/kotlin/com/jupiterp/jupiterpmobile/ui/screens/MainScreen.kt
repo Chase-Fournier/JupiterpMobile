@@ -82,6 +82,7 @@ fun MainScreen(
     var containerHeight by remember { mutableStateOf(0f) }
 
     // Sheet dimensions - increased to account for navigation bar padding
+    // Note: containerHeight automatically adjusts for keyboard via imePadding() on parent Box
     val collapsedHeightDp = 125.dp
     val collapsedHeightPx = with(density) { collapsedHeightDp.toPx() }
     val maxExpandedRatio = 0.85f
@@ -94,6 +95,17 @@ fun MainScreen(
     LaunchedEffect(containerHeight) {
         if (containerHeight > 0 && sheetHeightPx.value == 0f) {
             sheetHeightPx.snapTo(collapsedHeightPx)
+        }
+    }
+
+    // Adjust sheet height when keyboard appears/disappears
+    LaunchedEffect(maxExpandedHeightPx) {
+        if (maxExpandedHeightPx > 0 && sheetHeightPx.value > maxExpandedHeightPx) {
+            // Sheet is too tall, animate it down to the new max
+            sheetHeightPx.animateTo(
+                maxExpandedHeightPx,
+                animationSpec = tween(150, easing = FastOutSlowInEasing)
+            )
         }
     }
 
@@ -210,6 +222,7 @@ fun MainScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .onGloballyPositioned { coords ->
                     val newHeight = coords.size.height.toFloat()
                     if (newHeight > 0 && containerHeight != newHeight) {
@@ -227,7 +240,6 @@ fun MainScreen(
 
                 ScheduleContent(
                     selections = currentSelections,
-                    totalCredits = viewModel.getTotalCredits(),
                     scheduleBlocks = viewModel.getScheduleBlocks(),
                     otherItems = viewModel.getOtherItems(),
                     showCoursesExpanded = showCoursesExpanded,
@@ -580,7 +592,6 @@ private fun CompactHeader(
 @Composable
 private fun ScheduleContent(
     selections: List<ScheduleSelection>,
-    totalCredits: IntRange,
     scheduleBlocks: List<ScheduleBlock>,
     otherItems: List<OtherScheduleItem>,
     showCoursesExpanded: Boolean,
