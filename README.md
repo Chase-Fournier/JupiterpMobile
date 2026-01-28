@@ -26,7 +26,7 @@ The app features:
 jupiterp/
 ├── composeApp/
 │   └── src/
-│       ├── commonMain/           # Shared code (95%+)
+│       ├── commonMain/           # Shared code
 │       │   └── kotlin/com/jupiterp/
 │       │       ├── data/
 │       │       │   ├── api/      # Ktor HTTP client
