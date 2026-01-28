@@ -8,17 +8,6 @@ A beautiful Kotlin Multiplatform mobile application for University of Maryland s
 
 ## Features
 
-- **Course Search** - Search by course code, name, department, or GenEd requirements
-- **Professor Ratings** - View instructor ratings from PlanetTerp integration
-- **Visual Schedule Builder** - Build weekly schedules with a beautiful grid interface
-- **Conflict Detection** - Automatic time conflict detection when adding sections
-- **Gesture Navigation** - Swipe up/down to show/hide search results
-- **Material 3 Design** - Modern, intuitive UI following Material 3 expressive guidelines
-- **Dark Mode** - Full light and dark theme support
-- **Cross-Platform** - Runs on both iOS and Android with shared business logic
-
-## Screenshots
-
 The app features:
 - Single-screen design with gesture-based navigation
 - Schedule view as the primary screen
@@ -155,9 +144,7 @@ jupiterp/
 - Min SDK: 24 (Android 7.0)
 - Target SDK: 34 (Android 14)
 - Compile SDK: 34
-- Java 17 compatibility
 
 ### iOS
 - iOS 15+ deployment target
 - arm64 architecture support
-- Edge-to-edge display
