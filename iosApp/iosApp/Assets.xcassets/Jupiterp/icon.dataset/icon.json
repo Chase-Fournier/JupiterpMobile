@@ -1,0 +1,74 @@
+{
+  "fill" : {
+    "solid" : "display-p3:1.00000,0.76539,0.65157,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "glass" : true,
+          "image-name" : "layer-4-hexagon.svg",
+          "name" : "layer-4-hexagon",
+          "position" : {
+            "scale" : 1.9,
+            "translation-in-points" : [
+              -18.6640625,
+              1.759760000000142
+            ]
+          }
+        },
+        {
+          "blend-mode" : "soft-light",
+          "image-name" : "layer-3-orange-stripes.svg",
+          "name" : "layer-3-orange-stripes",
+          "position" : {
+            "scale" : 1.7,
+            "translation-in-points" : [
+              5.2,
+              0.7
+            ]
+          }
+        },
+        {
+          "blend-mode" : "screen",
+          "image-name" : "layer-2-light-stripes.svg",
+          "name" : "layer-2-light-stripes",
+          "position" : {
+            "scale" : 1.7,
+            "translation-in-points" : [
+              5.2,
+              0.7
+            ]
+          }
+        },
+        {
+          "image-name" : "layer-1-background.svg",
+          "name" : "layer-1-background",
+          "position" : {
+            "scale" : 1.7,
+            "translation-in-points" : [
+              5.198029392325566,
+              0.6748999999999796
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
