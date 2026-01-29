@@ -8,17 +8,6 @@ A beautiful Kotlin Multiplatform mobile application for University of Maryland s
 
 ## Features
 
-- **Course Search** - Search by course code, name, department, or GenEd requirements
-- **Professor Ratings** - View instructor ratings from PlanetTerp integration
-- **Visual Schedule Builder** - Build weekly schedules with a beautiful grid interface
-- **Conflict Detection** - Automatic time conflict detection when adding sections
-- **Gesture Navigation** - Swipe up/down to show/hide search results
-- **Material 3 Design** - Modern, intuitive UI following Material 3 expressive guidelines
-- **Dark Mode** - Full light and dark theme support
-- **Cross-Platform** - Runs on both iOS and Android with shared business logic
-
-## Screenshots
-
 The app features:
 - Single-screen design with gesture-based navigation
 - Schedule view as the primary screen
@@ -37,7 +26,7 @@ The app features:
 jupiterp/
 ├── composeApp/
 │   └── src/
-│       ├── commonMain/           # Shared code (95%+)
+│       ├── commonMain/           # Shared code
 │       │   └── kotlin/com/jupiterp/
 │       │       ├── data/
 │       │       │   ├── api/      # Ktor HTTP client
@@ -71,31 +60,6 @@ jupiterp/
 | **Date/Time** | kotlinx-datetime 0.6.1 |
 | **Persistence** | DataStore Preferences |
 
-## Design System
-
-### Color Palette
-
-```kotlin
-// Primary brand colors
-val Orange = Color(0xFFF6743C)
-val LightOrange = Color(0xFFE28A64)
-
-// Schedule block colors (16 pastel shades)
-val ScheduleColors = listOf(
-    Color(0xFFB3C8F2), // Soft blue
-    Color(0xFFF2B3B3), // Soft red
-    Color(0xFFF2EFB3), // Soft yellow
-    // ... 13 more pastel colors
-)
-```
-
-### Animations
-
-- Subtle, non-bouncy animations using `tween` easing
-- Quick transitions (150-250ms duration)
-- `FastOutSlowInEasing` for smooth motion
-- Gesture-based navigation with swipe detection
-
 ### Component Library
 
 - `CourseCard` - Expandable card with course details and sections
@@ -107,63 +71,6 @@ val ScheduleColors = listOf(
 - `GenEdBadge` - Orange-accented GenEd requirement badges
 - `RatingChip` - Color-coded professor rating indicators
 - `SeatsBadge` - Color-coded seat availability
-
-## Getting Started
-
-### Prerequisites
-
-- Android Studio Hedgehog (2023.1.1) or later
-- Xcode 15+ (for iOS development)
-- JDK 17+
-- Kotlin Multiplatform Mobile plugin
-
-### First-time Setup
-
-After cloning, you'll need to download the Gradle wrapper JAR:
-
-```bash
-# Option 1: Open in Android Studio and let it sync
-# Option 2: Run this command (requires Gradle installed globally)
-gradle wrapper --gradle-version 8.5
-```
-
-### Building
-
-#### Android
-
-```bash
-./gradlew :composeApp:assembleDebug
-```
-
-#### iOS
-
-1. Open `iosApp/iosApp.xcworkspace` in Xcode
-2. Select your target device
-3. Build and run (⌘R)
-
-### Running
-
-```bash
-# Android
-./gradlew :composeApp:installDebug
-
-# iOS (via Xcode)
-# Build the shared framework first
-./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64
-```
-
-## API Integration
-
-The app connects to the Jupiterp API:
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /courses` | Search courses with filters |
-| `GET /departments` | List all departments |
-| `GET /instructors` | Get instructor ratings |
-| `GET /courses/{code}/sections` | Get sections for a course |
-
-## Key Features Implementation
 
 ### Single-Screen Design
 - Schedule view is always visible as the main screen
@@ -237,28 +144,7 @@ The app connects to the Jupiterp API:
 - Min SDK: 24 (Android 7.0)
 - Target SDK: 34 (Android 14)
 - Compile SDK: 34
-- Java 17 compatibility
 
 ### iOS
 - iOS 15+ deployment target
 - arm64 architecture support
-- Edge-to-edge display
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
-
-## Acknowledgments
-
-- [Jupiterp API](https://api.jupiterp.com) for course data
-- [PlanetTerp](https://planetterp.com) for professor ratings
-- [Material 3](https://m3.material.io) for design guidelines
-- [JetBrains](https://www.jetbrains.com) for Kotlin Multiplatform
