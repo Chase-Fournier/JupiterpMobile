@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jupiterp.jupiterpmobile.data.api.ApiState
 import com.jupiterp.jupiterpmobile.domain.model.Course
+import com.jupiterp.jupiterpmobile.domain.model.Department
 import com.jupiterp.jupiterpmobile.domain.model.OtherScheduleItem
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
@@ -48,10 +49,9 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 
 /**
- * Main screen with bottom search sheet
- * - Search bar always at bottom of sheet
- * - Results appear above search bar as sheet expands upward
- * - Drag to expand/collapse
+ * Main screen with responsive layout
+ * - Phone (< 600dp): Bottom search sheet over schedule
+ * - Tablet (>= 600dp): Side-by-side schedule + search panel
  */
 @Composable
 fun MainScreen(
@@ -71,100 +71,19 @@ fun MainScreen(
     val snackbarMessage by viewModel.snackbarMessage.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-
     val searchFocusRequester = remember { FocusRequester() }
 
     var showSettings by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showCoursesExpanded by remember { mutableStateOf(false) }
-    var containerHeight by remember { mutableStateOf(0f) }
 
-    // Sheet dimensions - increased to account for navigation bar padding
-    // Note: containerHeight automatically adjusts for keyboard via imePadding() on parent Box
-    val collapsedHeightDp = 125.dp
-    val collapsedHeightPx = with(density) { collapsedHeightDp.toPx() }
-    val maxExpandedRatio = 0.85f
-    val maxExpandedHeightPx = containerHeight * maxExpandedRatio
-
-    // Sheet height animation - starts at collapsed
-    val sheetHeightPx = remember { Animatable(0f) }
-
-    // Initialize sheet height when container is measured
-    LaunchedEffect(containerHeight) {
-        if (containerHeight > 0 && sheetHeightPx.value == 0f) {
-            sheetHeightPx.snapTo(collapsedHeightPx)
-        }
-    }
-
-    // Adjust sheet height when keyboard appears/disappears
-    LaunchedEffect(maxExpandedHeightPx) {
-        if (maxExpandedHeightPx > 0 && sheetHeightPx.value > maxExpandedHeightPx) {
-            // Sheet is too tall, animate it down to the new max
-            sheetHeightPx.animateTo(
-                maxExpandedHeightPx,
-                animationSpec = tween(150, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    // Expansion progress: 0 = collapsed, 1 = fully expanded
-    val expansionProgress by remember {
-        derivedStateOf {
-            if (maxExpandedHeightPx > collapsedHeightPx && sheetHeightPx.value >= collapsedHeightPx) {
-                ((sheetHeightPx.value - collapsedHeightPx) / (maxExpandedHeightPx - collapsedHeightPx)).coerceIn(0f, 1f)
-            } else 0f
-        }
-    }
-
-    val isExpanded by remember { derivedStateOf { expansionProgress > 0.3f } }
-
-    val sheetColor = MaterialTheme.colorScheme.surfaceContainerHigh
-
-    // Track if we should be expanded based on having content to show
-    val hasSearchContent = coursesState is ApiState.Loading ||
-            coursesState is ApiState.Success ||
-            coursesState is ApiState.Error ||
-            (coursesState is ApiState.Empty && (searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty()))
+    val departments = (departmentsState as? ApiState.Success)?.data ?: emptyList()
 
     // Snackbar handling
     LaunchedEffect(snackbarMessage) {
         snackbarMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
             viewModel.dismissSnackbar()
-        }
-    }
-
-    // Auto-expand when there's search content to show
-    LaunchedEffect(hasSearchContent, maxExpandedHeightPx) {
-        if (hasSearchContent && maxExpandedHeightPx > 0 && sheetHeightPx.value < maxExpandedHeightPx * 0.8f) {
-            sheetHeightPx.animateTo(
-                maxExpandedHeightPx,
-                animationSpec = tween(300, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    // Expand and focus search
-    fun expand() {
-        scope.launch {
-            sheetHeightPx.animateTo(
-                maxExpandedHeightPx,
-                animationSpec = tween(300, easing = FastOutSlowInEasing)
-            )
-            delay(100)
-            try { searchFocusRequester.requestFocus() } catch (_: Exception) { }
-        }
-    }
-
-    // Collapse sheet
-    fun collapse() {
-        scope.launch {
-            sheetHeightPx.animateTo(
-                collapsedHeightPx,
-                animationSpec = tween(250, easing = FastOutSlowInEasing)
-            )
         }
     }
 
@@ -219,185 +138,431 @@ fun MainScreen(
             }
         }
     ) { _ ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding()
-                .onGloballyPositioned { coords ->
-                    val newHeight = coords.size.height.toFloat()
-                    if (newHeight > 0 && containerHeight != newHeight) {
-                        containerHeight = newHeight
-                    }
-                }
-        ) {
-            // Background: Schedule view
-            Column(modifier = Modifier.fillMaxSize()) {
-                CompactHeader(
-                    selectedCount = currentSelections.size,
-                    totalCredits = viewModel.getTotalCredits(),
-                    onSettingsClick = { showSettings = true }
-                )
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isTablet = maxWidth >= 600.dp
 
-                ScheduleContent(
-                    selections = currentSelections,
-                    scheduleBlocks = viewModel.getScheduleBlocks(),
-                    otherItems = viewModel.getOtherItems(),
+            if (isTablet) {
+                TabletLayout(
+                    viewModel = viewModel,
+                    searchQuery = searchQuery,
+                    selectedDepartment = selectedDepartment,
+                    selectedGenEds = selectedGenEds,
+                    coursesState = coursesState,
+                    departments = departments,
+                    expandedCourseCode = expandedCourseCode,
+                    currentSelections = currentSelections,
+                    searchFocusRequester = searchFocusRequester,
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
-                    onRemoveSection = { code, section -> viewModel.removeSection(code, section) },
-                    modifier = Modifier.weight(1f)
+                    onSettingsClick = { showSettings = true }
                 )
-
-                // Reserve space for collapsed sheet
-                Spacer(modifier = Modifier.height(collapsedHeightDp))
+            } else {
+                PhoneLayout(
+                    viewModel = viewModel,
+                    searchQuery = searchQuery,
+                    selectedDepartment = selectedDepartment,
+                    selectedGenEds = selectedGenEds,
+                    coursesState = coursesState,
+                    departments = departments,
+                    expandedCourseCode = expandedCourseCode,
+                    currentSelections = currentSelections,
+                    searchFocusRequester = searchFocusRequester,
+                    showCoursesExpanded = showCoursesExpanded,
+                    onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
+                    onSettingsClick = { showSettings = true }
+                )
             }
+        }
+    }
+}
 
-            // Bottom sheet - expands upward from bottom
-            if (containerHeight > 0 && sheetHeightPx.value > 0) {
-                val heightDp = with(density) { sheetHeightPx.value.toDp() }
+/**
+ * Phone layout with bottom search sheet
+ */
+@Composable
+private fun PhoneLayout(
+    viewModel: MainViewModel,
+    searchQuery: String,
+    selectedDepartment: String?,
+    selectedGenEds: List<String>,
+    coursesState: ApiState<List<Course>>,
+    departments: List<Department>,
+    expandedCourseCode: String?,
+    currentSelections: List<ScheduleSelection>,
+    searchFocusRequester: FocusRequester,
+    showCoursesExpanded: Boolean,
+    onToggleCoursesExpanded: () -> Unit,
+    onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(heightDp)
-                        .align(Alignment.BottomCenter)
-                        .pointerInput(collapsedHeightPx, maxExpandedHeightPx) {
-                            var velocity = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { velocity = 0f },
-                                onDragEnd = {
-                                    scope.launch {
-                                        val target = when {
-                                            velocity < -500f -> maxExpandedHeightPx
-                                            velocity > 500f -> collapsedHeightPx
-                                            sheetHeightPx.value > (collapsedHeightPx + maxExpandedHeightPx) / 2 -> maxExpandedHeightPx
-                                            else -> collapsedHeightPx
-                                        }
-                                        sheetHeightPx.animateTo(target, tween(200, easing = FastOutSlowInEasing))
-                                        if (target == maxExpandedHeightPx) {
-                                            delay(50)
-                                            try { searchFocusRequester.requestFocus() } catch (_: Exception) { }
-                                        }
+    var containerHeight by remember { mutableStateOf(0f) }
+
+    // Sheet dimensions
+    val collapsedHeightDp = 125.dp
+    val collapsedHeightPx = with(density) { collapsedHeightDp.toPx() }
+    val maxExpandedRatio = 0.85f
+    val maxExpandedHeightPx = containerHeight * maxExpandedRatio
+
+    // Sheet height animation - starts at collapsed
+    val sheetHeightPx = remember { Animatable(0f) }
+
+    // Initialize sheet height when container is measured
+    LaunchedEffect(containerHeight) {
+        if (containerHeight > 0 && sheetHeightPx.value == 0f) {
+            sheetHeightPx.snapTo(collapsedHeightPx)
+        }
+    }
+
+    // Adjust sheet height when keyboard appears/disappears
+    LaunchedEffect(maxExpandedHeightPx) {
+        if (maxExpandedHeightPx > 0 && sheetHeightPx.value > maxExpandedHeightPx) {
+            sheetHeightPx.animateTo(
+                maxExpandedHeightPx,
+                animationSpec = tween(150, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    // Expansion progress: 0 = collapsed, 1 = fully expanded
+    val expansionProgress by remember {
+        derivedStateOf {
+            if (maxExpandedHeightPx > collapsedHeightPx && sheetHeightPx.value >= collapsedHeightPx) {
+                ((sheetHeightPx.value - collapsedHeightPx) / (maxExpandedHeightPx - collapsedHeightPx)).coerceIn(0f, 1f)
+            } else 0f
+        }
+    }
+
+    val isExpanded by remember { derivedStateOf { expansionProgress > 0.3f } }
+
+    val sheetColor = MaterialTheme.colorScheme.surfaceContainerHigh
+
+    val hasSearchContent = coursesState is ApiState.Loading ||
+            coursesState is ApiState.Success ||
+            coursesState is ApiState.Error ||
+            (coursesState is ApiState.Empty && (searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty()))
+
+    // Auto-expand when there's search content to show
+    LaunchedEffect(hasSearchContent, maxExpandedHeightPx) {
+        if (hasSearchContent && maxExpandedHeightPx > 0 && sheetHeightPx.value < maxExpandedHeightPx * 0.8f) {
+            sheetHeightPx.animateTo(
+                maxExpandedHeightPx,
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    fun expand() {
+        scope.launch {
+            sheetHeightPx.animateTo(
+                maxExpandedHeightPx,
+                animationSpec = tween(300, easing = FastOutSlowInEasing)
+            )
+            delay(100)
+            try { searchFocusRequester.requestFocus() } catch (_: Exception) { }
+        }
+    }
+
+    fun collapse() {
+        scope.launch {
+            sheetHeightPx.animateTo(
+                collapsedHeightPx,
+                animationSpec = tween(250, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+            .onGloballyPositioned { coords ->
+                val newHeight = coords.size.height.toFloat()
+                if (newHeight > 0 && containerHeight != newHeight) {
+                    containerHeight = newHeight
+                }
+            }
+    ) {
+        // Background: Schedule view
+        Column(modifier = Modifier.fillMaxSize()) {
+            CompactHeader(
+                selectedCount = currentSelections.size,
+                totalCredits = viewModel.getTotalCredits(),
+                onSettingsClick = onSettingsClick
+            )
+
+            ScheduleContent(
+                selections = currentSelections,
+                scheduleBlocks = viewModel.getScheduleBlocks(),
+                otherItems = viewModel.getOtherItems(),
+                showCoursesExpanded = showCoursesExpanded,
+                onToggleCoursesExpanded = onToggleCoursesExpanded,
+                onRemoveSection = { code, section -> viewModel.removeSection(code, section) },
+                modifier = Modifier.weight(1f)
+            )
+
+            // Reserve space for collapsed sheet
+            Spacer(modifier = Modifier.height(collapsedHeightDp))
+        }
+
+        // Bottom sheet - expands upward from bottom
+        if (containerHeight > 0 && sheetHeightPx.value > 0) {
+            val heightDp = with(density) { sheetHeightPx.value.toDp() }
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heightDp)
+                    .align(Alignment.BottomCenter)
+                    .pointerInput(collapsedHeightPx, maxExpandedHeightPx) {
+                        var velocity = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { velocity = 0f },
+                            onDragEnd = {
+                                scope.launch {
+                                    val target = when {
+                                        velocity < -500f -> maxExpandedHeightPx
+                                        velocity > 500f -> collapsedHeightPx
+                                        sheetHeightPx.value > (collapsedHeightPx + maxExpandedHeightPx) / 2 -> maxExpandedHeightPx
+                                        else -> collapsedHeightPx
                                     }
-                                },
-                                onDragCancel = {
-                                    scope.launch {
-                                        val target = if (sheetHeightPx.value > (collapsedHeightPx + maxExpandedHeightPx) / 2)
-                                            maxExpandedHeightPx else collapsedHeightPx
-                                        sheetHeightPx.animateTo(target, tween(200))
-                                    }
-                                },
-                                onVerticalDrag = { _, dragAmount ->
-                                    velocity = dragAmount * 10
-                                    scope.launch {
-                                        // Swipe up (negative) = expand (increase height)
-                                        val newHeight = (sheetHeightPx.value - dragAmount)
-                                            .coerceIn(collapsedHeightPx, maxExpandedHeightPx)
-                                        sheetHeightPx.snapTo(newHeight)
+                                    sheetHeightPx.animateTo(target, tween(200, easing = FastOutSlowInEasing))
+                                    if (target == maxExpandedHeightPx) {
+                                        delay(50)
+                                        try { searchFocusRequester.requestFocus() } catch (_: Exception) { }
                                     }
                                 }
-                            )
-                        },
-                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    color = sheetColor,
-                    shadowElevation = 8.dp
-                ) {
-                    // Content: drag handle at top, results in middle, search bar at bottom
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Drag handle - always visible at top of sheet
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) { if (isExpanded) collapse() else expand() }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(36.dp)
-                                    .height(4.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-                            )
-                        }
-
-                        // Results area - takes all space between handle and search bar
-                        // Show content when we have search content OR when expanded
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                        ) {
-                            // Show results when sheet is expanded enough OR when we have content to display
-                            if (expansionProgress > 0.01f || hasSearchContent) {
-                                Column(modifier = Modifier.fillMaxSize()) {
-                                    HorizontalDivider(
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(
-                                            alpha = expansionProgress.coerceIn(0.3f, 1f)
-                                        )
-                                    )
-
-                                    SearchResultsContent(
-                                        coursesState = coursesState,
-                                        expandedCourseCode = expandedCourseCode,
-                                        onExpandToggle = viewModel::toggleCourseExpansion,
-                                        isSectionSelected = { code, sec ->
-                                            currentSelections.any {
-                                                it.course.courseCode == code && it.section.sectionCode == sec
-                                            }
-                                        },
-                                        isCourseSelected = { code ->
-                                            currentSelections.any { it.course.courseCode == code }
-                                        },
-                                        getInstructorRating = { viewModel.getInstructorRating(it) },
-                                        onSectionToggle = { course, section ->
-                                            val isSelected = currentSelections.any {
-                                                it.course.courseCode == course.courseCode &&
-                                                        it.section.sectionCode == section.sectionCode
-                                            }
-                                            if (isSelected) {
-                                                viewModel.removeSection(course.courseCode, section.sectionCode)
-                                            } else {
-                                                viewModel.addSection(course, section)
-                                            }
-                                        },
-                                        onAddCourseWithoutSection = { course ->
-                                            viewModel.addCourseWithoutSection(course)
-                                        },
-                                        hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                            },
+                            onDragCancel = {
+                                scope.launch {
+                                    val target = if (sheetHeightPx.value > (collapsedHeightPx + maxExpandedHeightPx) / 2)
+                                        maxExpandedHeightPx else collapsedHeightPx
+                                    sheetHeightPx.animateTo(target, tween(200))
+                                }
+                            },
+                            onVerticalDrag = { _, dragAmount ->
+                                velocity = dragAmount * 10
+                                scope.launch {
+                                    val newHeight = (sheetHeightPx.value - dragAmount)
+                                        .coerceIn(collapsedHeightPx, maxExpandedHeightPx)
+                                    sheetHeightPx.snapTo(newHeight)
                                 }
                             }
-                        }
-
-                        // Search bar - always at bottom
-                        Column(
+                        )
+                    },
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                color = sheetColor,
+                shadowElevation = 8.dp
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Drag handle
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) { if (isExpanded) collapse() else expand() }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(top = 8.dp)
-                                .navigationBarsPadding()
-                                .padding(bottom = 8.dp)
-                        ) {
-                            com.jupiterp.jupiterpmobile.ui.components.SearchBar(
-                                query = searchQuery,
-                                onQueryChange = viewModel::onSearchQueryChange,
-                                onSearch = viewModel::searchCourses,
-                                departments = (departmentsState as? ApiState.Success)?.data
-                                    ?: emptyList(),
-                                selectedDepartment = selectedDepartment,
-                                onDepartmentSelect = viewModel::setDepartment,
-                                selectedGenEds = selectedGenEds,
-                                onGenEdToggle = viewModel::toggleGenEd,
-                                onClearFilters = viewModel::clearFilters,
-                                focusRequester = searchFocusRequester
-                            )
+                                .width(36.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+                        )
+                    }
+
+                    // Results area
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        if (expansionProgress > 0.01f || hasSearchContent) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(
+                                        alpha = expansionProgress.coerceIn(0.3f, 1f)
+                                    )
+                                )
+
+                                SearchResultsContent(
+                                    coursesState = coursesState,
+                                    expandedCourseCode = expandedCourseCode,
+                                    onExpandToggle = viewModel::toggleCourseExpansion,
+                                    isSectionSelected = { code, sec ->
+                                        currentSelections.any {
+                                            it.course.courseCode == code && it.section.sectionCode == sec
+                                        }
+                                    },
+                                    isCourseSelected = { code ->
+                                        currentSelections.any { it.course.courseCode == code }
+                                    },
+                                    getInstructorRating = { viewModel.getInstructorRating(it) },
+                                    onSectionToggle = { course, section ->
+                                        val isSelected = currentSelections.any {
+                                            it.course.courseCode == course.courseCode &&
+                                                    it.section.sectionCode == section.sectionCode
+                                        }
+                                        if (isSelected) {
+                                            viewModel.removeSection(course.courseCode, section.sectionCode)
+                                        } else {
+                                            viewModel.addSection(course, section)
+                                        }
+                                    },
+                                    onAddCourseWithoutSection = { course ->
+                                        viewModel.addCourseWithoutSection(course)
+                                    },
+                                    hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
+
+                    // Search bar - always at bottom
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 8.dp)
+                            .navigationBarsPadding()
+                            .padding(bottom = 8.dp)
+                    ) {
+                        com.jupiterp.jupiterpmobile.ui.components.SearchBar(
+                            query = searchQuery,
+                            onQueryChange = viewModel::onSearchQueryChange,
+                            onSearch = viewModel::searchCourses,
+                            departments = departments,
+                            selectedDepartment = selectedDepartment,
+                            onDepartmentSelect = viewModel::setDepartment,
+                            selectedGenEds = selectedGenEds,
+                            onGenEdToggle = viewModel::toggleGenEd,
+                            onClearFilters = viewModel::clearFilters,
+                            focusRequester = searchFocusRequester
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tablet layout with side-by-side schedule and search panel
+ */
+@Composable
+private fun TabletLayout(
+    viewModel: MainViewModel,
+    searchQuery: String,
+    selectedDepartment: String?,
+    selectedGenEds: List<String>,
+    coursesState: ApiState<List<Course>>,
+    departments: List<Department>,
+    expandedCourseCode: String?,
+    currentSelections: List<ScheduleSelection>,
+    searchFocusRequester: FocusRequester,
+    showCoursesExpanded: Boolean,
+    onToggleCoursesExpanded: () -> Unit,
+    onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+    ) {
+        // Full-width header
+        CompactHeader(
+            selectedCount = currentSelections.size,
+            totalCredits = viewModel.getTotalCredits(),
+            onSettingsClick = onSettingsClick
+        )
+
+        // Two-pane content
+        Row(modifier = Modifier.fillMaxSize()) {
+            // LEFT PANE: Schedule
+            ScheduleContent(
+                selections = currentSelections,
+                scheduleBlocks = viewModel.getScheduleBlocks(),
+                otherItems = viewModel.getOtherItems(),
+                showCoursesExpanded = showCoursesExpanded,
+                onToggleCoursesExpanded = onToggleCoursesExpanded,
+                onRemoveSection = { code, section -> viewModel.removeSection(code, section) },
+                modifier = Modifier.weight(0.55f).fillMaxHeight()
+            )
+
+            // Vertical divider
+            VerticalDivider(
+                modifier = Modifier.fillMaxHeight(),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            // RIGHT PANE: Search
+            Surface(
+                modifier = Modifier.weight(0.45f).fillMaxHeight(),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Search bar at top
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 12.dp, bottom = 8.dp)
+                    ) {
+                        com.jupiterp.jupiterpmobile.ui.components.SearchBar(
+                            query = searchQuery,
+                            onQueryChange = viewModel::onSearchQueryChange,
+                            onSearch = viewModel::searchCourses,
+                            departments = departments,
+                            selectedDepartment = selectedDepartment,
+                            onDepartmentSelect = viewModel::setDepartment,
+                            selectedGenEds = selectedGenEds,
+                            onGenEdToggle = viewModel::toggleGenEd,
+                            onClearFilters = viewModel::clearFilters,
+                            focusRequester = searchFocusRequester
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    // Search results
+                    SearchResultsContent(
+                        coursesState = coursesState,
+                        expandedCourseCode = expandedCourseCode,
+                        onExpandToggle = viewModel::toggleCourseExpansion,
+                        isSectionSelected = { code, sec ->
+                            currentSelections.any {
+                                it.course.courseCode == code && it.section.sectionCode == sec
+                            }
+                        },
+                        isCourseSelected = { code ->
+                            currentSelections.any { it.course.courseCode == code }
+                        },
+                        getInstructorRating = { viewModel.getInstructorRating(it) },
+                        onSectionToggle = { course, section ->
+                            val isSelected = currentSelections.any {
+                                it.course.courseCode == course.courseCode &&
+                                        it.section.sectionCode == section.sectionCode
+                            }
+                            if (isSelected) {
+                                viewModel.removeSection(course.courseCode, section.sectionCode)
+                            } else {
+                                viewModel.addSection(course, section)
+                            }
+                        },
+                        onAddCourseWithoutSection = { course ->
+                            viewModel.addCourseWithoutSection(course)
+                        },
+                        hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
