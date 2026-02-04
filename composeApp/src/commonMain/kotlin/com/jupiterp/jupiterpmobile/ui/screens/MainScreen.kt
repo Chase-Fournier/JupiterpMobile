@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -497,15 +498,11 @@ private fun TabletLayout(
                 modifier = Modifier.weight(0.55f).fillMaxHeight()
             )
 
-            // Vertical divider
-            VerticalDivider(
-                modifier = Modifier.fillMaxHeight(),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
 
             // RIGHT PANE: Search
             Surface(
                 modifier = Modifier.weight(0.45f).fillMaxHeight(),
+                shape = RoundedCornerShape(topStart = 16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
