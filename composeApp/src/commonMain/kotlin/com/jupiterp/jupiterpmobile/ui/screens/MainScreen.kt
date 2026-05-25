@@ -64,12 +64,14 @@ fun MainScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedDepartment by viewModel.selectedDepartment.collectAsState()
     val selectedGenEds by viewModel.selectedGenEds.collectAsState()
+    val selectedInstructor by viewModel.selectedInstructor.collectAsState()
     val coursesState by viewModel.coursesState.collectAsState()
     val departmentsState by viewModel.departmentsState.collectAsState()
     val expandedCourseCode by viewModel.expandedCourseCode.collectAsState()
     val currentSelections by viewModel.currentSelections.collectAsState()
     val savedSchedules by viewModel.savedSchedules.collectAsState()
     val snackbarMessage by viewModel.snackbarMessage.collectAsState()
+    val instructorSuggestions by viewModel.instructorSuggestions.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val searchFocusRequester = remember { FocusRequester() }
@@ -121,6 +123,10 @@ fun MainScreen(
             onClearSchedule = {
                 viewModel.clearSchedule()
                 showSettings = false
+            },
+            onExportCalendar = {
+                showSettings = false
+                viewModel.exportSchedule()
             }
         )
     }
@@ -148,6 +154,7 @@ fun MainScreen(
                     searchQuery = searchQuery,
                     selectedDepartment = selectedDepartment,
                     selectedGenEds = selectedGenEds,
+                    selectedInstructor = selectedInstructor,
                     coursesState = coursesState,
                     departments = departments,
                     expandedCourseCode = expandedCourseCode,
@@ -155,7 +162,8 @@ fun MainScreen(
                     searchFocusRequester = searchFocusRequester,
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
-                    onSettingsClick = { showSettings = true }
+                    onSettingsClick = { showSettings = true },
+                    instructorSuggestions = instructorSuggestions
                 )
             } else {
                 PhoneLayout(
@@ -163,6 +171,7 @@ fun MainScreen(
                     searchQuery = searchQuery,
                     selectedDepartment = selectedDepartment,
                     selectedGenEds = selectedGenEds,
+                    selectedInstructor = selectedInstructor,
                     coursesState = coursesState,
                     departments = departments,
                     expandedCourseCode = expandedCourseCode,
@@ -170,7 +179,8 @@ fun MainScreen(
                     searchFocusRequester = searchFocusRequester,
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
-                    onSettingsClick = { showSettings = true }
+                    onSettingsClick = { showSettings = true },
+                    instructorSuggestions = instructorSuggestions
                 )
             }
         }
@@ -186,6 +196,7 @@ private fun PhoneLayout(
     searchQuery: String,
     selectedDepartment: String?,
     selectedGenEds: List<String>,
+    selectedInstructor: String?,
     coursesState: ApiState<List<Course>>,
     departments: List<Department>,
     expandedCourseCode: String?,
@@ -194,98 +205,97 @@ private fun PhoneLayout(
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onSettingsClick: () -> Unit,
+    instructorSuggestions: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    var containerHeight by remember { mutableStateOf(0f) }
-
     // Sheet dimensions
     val collapsedHeightDp = 125.dp
     val collapsedHeightPx = with(density) { collapsedHeightDp.toPx() }
-    val maxExpandedRatio = 0.85f
-    val maxExpandedHeightPx = containerHeight * maxExpandedRatio
 
     // Sheet height animation - starts at collapsed
     val sheetHeightPx = remember { Animatable(0f) }
-
-    // Initialize sheet height when container is measured
-    LaunchedEffect(containerHeight) {
-        if (containerHeight > 0 && sheetHeightPx.value == 0f) {
-            sheetHeightPx.snapTo(collapsedHeightPx)
-        }
-    }
-
-    // Adjust sheet height when keyboard appears/disappears
-    LaunchedEffect(maxExpandedHeightPx) {
-        if (maxExpandedHeightPx > 0 && sheetHeightPx.value > maxExpandedHeightPx) {
-            sheetHeightPx.animateTo(
-                maxExpandedHeightPx,
-                animationSpec = tween(150, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    // Expansion progress: 0 = collapsed, 1 = fully expanded
-    val expansionProgress by remember {
-        derivedStateOf {
-            if (maxExpandedHeightPx > collapsedHeightPx && sheetHeightPx.value >= collapsedHeightPx) {
-                ((sheetHeightPx.value - collapsedHeightPx) / (maxExpandedHeightPx - collapsedHeightPx)).coerceIn(0f, 1f)
-            } else 0f
-        }
-    }
-
-    val isExpanded by remember { derivedStateOf { expansionProgress > 0.3f } }
 
     val sheetColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
     val hasSearchContent = coursesState is ApiState.Loading ||
             coursesState is ApiState.Success ||
             coursesState is ApiState.Error ||
-            (coursesState is ApiState.Empty && (searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty()))
+            (coursesState is ApiState.Empty &&
+                    (searchQuery.isNotEmpty() ||
+                            selectedDepartment != null ||
+                            selectedGenEds.isNotEmpty() ||
+                            selectedInstructor != null))
 
-    // Auto-expand when there's search content to show
-    LaunchedEffect(hasSearchContent, maxExpandedHeightPx) {
-        if (hasSearchContent && maxExpandedHeightPx > 0 && sheetHeightPx.value < maxExpandedHeightPx * 0.8f) {
-            sheetHeightPx.animateTo(
-                maxExpandedHeightPx,
-                animationSpec = tween(300, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    fun expand() {
-        scope.launch {
-            sheetHeightPx.animateTo(
-                maxExpandedHeightPx,
-                animationSpec = tween(300, easing = FastOutSlowInEasing)
-            )
-            delay(100)
-            try { searchFocusRequester.requestFocus() } catch (_: Exception) { }
-        }
-    }
-
-    fun collapse() {
-        scope.launch {
-            sheetHeightPx.animateTo(
-                collapsedHeightPx,
-                animationSpec = tween(250, easing = FastOutSlowInEasing)
-            )
-        }
-    }
-
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .imePadding()
-            .onGloballyPositioned { coords ->
-                val newHeight = coords.size.height.toFloat()
-                if (newHeight > 0 && containerHeight != newHeight) {
-                    containerHeight = newHeight
-                }
-            }
     ) {
+        // BoxWithConstraints' maxHeight already reflects imePadding, so the sheet
+        // never overflows when the keyboard opens.
+        val containerHeight = constraints.maxHeight.toFloat()
+        val maxExpandedRatio = 0.85f
+        val maxExpandedHeightPx = containerHeight * maxExpandedRatio
+
+        LaunchedEffect(containerHeight) {
+            if (containerHeight > 0 && sheetHeightPx.value == 0f) {
+                sheetHeightPx.snapTo(collapsedHeightPx)
+            }
+        }
+
+        // Adjust sheet height when keyboard appears/disappears
+        LaunchedEffect(maxExpandedHeightPx) {
+            if (maxExpandedHeightPx > 0 && sheetHeightPx.value > maxExpandedHeightPx) {
+                sheetHeightPx.animateTo(
+                    maxExpandedHeightPx,
+                    animationSpec = tween(150, easing = FastOutSlowInEasing)
+                )
+            }
+        }
+
+        val expansionProgress by remember {
+            derivedStateOf {
+                if (maxExpandedHeightPx > collapsedHeightPx && sheetHeightPx.value >= collapsedHeightPx) {
+                    ((sheetHeightPx.value - collapsedHeightPx) / (maxExpandedHeightPx - collapsedHeightPx)).coerceIn(0f, 1f)
+                } else 0f
+            }
+        }
+
+        val isExpanded by remember { derivedStateOf { expansionProgress > 0.3f } }
+
+        // Auto-expand when there's search content to show
+        LaunchedEffect(hasSearchContent, maxExpandedHeightPx) {
+            if (hasSearchContent && maxExpandedHeightPx > 0 && sheetHeightPx.value < maxExpandedHeightPx * 0.8f) {
+                sheetHeightPx.animateTo(
+                    maxExpandedHeightPx,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                )
+            }
+        }
+
+        fun expand() {
+            scope.launch {
+                sheetHeightPx.animateTo(
+                    maxExpandedHeightPx,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                )
+                delay(100)
+                try { searchFocusRequester.requestFocus() } catch (_: Exception) { }
+            }
+        }
+
+        fun collapse() {
+            scope.launch {
+                sheetHeightPx.animateTo(
+                    collapsedHeightPx,
+                    animationSpec = tween(250, easing = FastOutSlowInEasing)
+                )
+            }
+        }
+
         // Background: Schedule view
         Column(modifier = Modifier.fillMaxSize()) {
             CompactHeader(
@@ -426,13 +436,18 @@ private fun PhoneLayout(
                         }
                     }
 
-                    // Search bar - always at bottom
+                    // Search bar - always at bottom.
+                    // The outer Box already applies imePadding, so use
+                    // navigationBars.exclude(ime) here — otherwise the nav-bar
+                    // inset (~48dp) leaves a gap between this row and the keyboard.
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .padding(top = 8.dp)
-                            .navigationBarsPadding()
+                            .windowInsetsPadding(
+                                WindowInsets.navigationBars.exclude(WindowInsets.ime)
+                            )
                             .padding(bottom = 8.dp)
                     ) {
                         com.jupiterp.jupiterpmobile.ui.components.SearchBar(
@@ -445,7 +460,12 @@ private fun PhoneLayout(
                             selectedGenEds = selectedGenEds,
                             onGenEdToggle = viewModel::toggleGenEd,
                             onClearFilters = viewModel::clearFilters,
-                            focusRequester = searchFocusRequester
+                            focusRequester = searchFocusRequester,
+                            instructorSuggestions = instructorSuggestions,
+                            onInstructorSelected = viewModel::selectInstructorSuggestion,
+                            suggestionsAbove = true,
+                            selectedInstructor = selectedInstructor,
+                            onClearInstructor = viewModel::clearInstructorFilter
                         )
                     }
                 }
@@ -463,6 +483,7 @@ private fun TabletLayout(
     searchQuery: String,
     selectedDepartment: String?,
     selectedGenEds: List<String>,
+    selectedInstructor: String?,
     coursesState: ApiState<List<Course>>,
     departments: List<Department>,
     expandedCourseCode: String?,
@@ -471,6 +492,7 @@ private fun TabletLayout(
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onSettingsClick: () -> Unit,
+    instructorSuggestions: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -523,7 +545,11 @@ private fun TabletLayout(
                             selectedGenEds = selectedGenEds,
                             onGenEdToggle = viewModel::toggleGenEd,
                             onClearFilters = viewModel::clearFilters,
-                            focusRequester = searchFocusRequester
+                            focusRequester = searchFocusRequester,
+                            instructorSuggestions = instructorSuggestions,
+                            onInstructorSelected = viewModel::selectInstructorSuggestion,
+                            selectedInstructor = selectedInstructor,
+                            onClearInstructor = viewModel::clearInstructorFilter
                         )
                     }
 
@@ -948,7 +974,8 @@ private fun SettingsBottomSheet(
     onLoadSchedule: (String) -> Unit,
     onDeleteSchedule: (String) -> Unit,
     onDismiss: () -> Unit,
-    onClearSchedule: () -> Unit
+    onClearSchedule: () -> Unit,
+    onExportCalendar: () -> Unit = {}
 ) {
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
@@ -1085,6 +1112,52 @@ private fun SettingsBottomSheet(
                         )
                         Text(
                             if (hasCurrentSchedule) "Save to load later" else "No courses selected",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JupiterpTheme.extendedColors.textSecondary.copy(
+                                alpha = if (hasCurrentSchedule) 1f else 0.5f
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Export to calendar
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = hasCurrentSchedule, onClick = onExportCalendar),
+                shape = RoundedCornerShape(12.dp),
+                color = if (hasCurrentSchedule)
+                    JupiterpTheme.extendedColors.orangeContainer.copy(alpha = 0.5f)
+                else
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.CalendarMonth,
+                        null,
+                        tint = if (hasCurrentSchedule)
+                            JupiterpTheme.extendedColors.orange
+                        else
+                            JupiterpTheme.extendedColors.textSecondary.copy(alpha = 0.5f)
+                    )
+                    Column {
+                        Text(
+                            "Export to Calendar (.ics)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = if (hasCurrentSchedule)
+                                MaterialTheme.colorScheme.onSurface
+                            else
+                                JupiterpTheme.extendedColors.textSecondary.copy(alpha = 0.5f)
+                        )
+                        Text(
+                            if (hasCurrentSchedule) "Share to Google Calendar, Apple Calendar, etc."
+                            else "No courses selected",
                             style = MaterialTheme.typography.bodySmall,
                             color = JupiterpTheme.extendedColors.textSecondary.copy(
                                 alpha = if (hasCurrentSchedule) 1f else 0.5f

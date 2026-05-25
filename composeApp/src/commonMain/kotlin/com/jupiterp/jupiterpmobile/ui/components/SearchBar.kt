@@ -46,19 +46,80 @@ fun SearchBar(
     onClearFilters: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
-    onFocused: (() -> Unit)? = null
+    onFocused: (() -> Unit)? = null,
+    instructorSuggestions: List<String> = emptyList(),
+    onInstructorSelected: (String) -> Unit = {},
+    suggestionsAbove: Boolean = false,
+    selectedInstructor: String? = null,
+    onClearInstructor: () -> Unit = {}
 ) {
     var showFilters by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val internalFocusRequester = remember { FocusRequester() }
     val actualFocusRequester = focusRequester ?: internalFocusRequester
 
-    val hasActiveFilters = selectedDepartment != null || selectedGenEds.isNotEmpty()
+    val atIdx = query.indexOf('@')
+    val hasActiveFilters =
+        selectedDepartment != null || selectedGenEds.isNotEmpty() || !selectedInstructor.isNullOrEmpty()
+
+    @Composable
+    fun SuggestionDropdown() {
+        AnimatedVisibility(
+            visible = atIdx >= 0 && instructorSuggestions.isNotEmpty(),
+            enter = expandVertically(animationSpec = tween(150)) + fadeIn(animationSpec = tween(150)),
+            exit = shrinkVertically(animationSpec = tween(100)) + fadeOut(animationSpec = tween(100))
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 4.dp
+            ) {
+                Column {
+                    instructorSuggestions.forEachIndexed { index, name ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onInstructorSelected(name)
+                                    focusManager.clearFocus()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = null,
+                                tint = JupiterpTheme.extendedColors.orange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        if (index < instructorSuggestions.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // On phone the search bar sits at the bottom of the sheet, so the dropdown
+        // must render above the field to stay within the visible surface area.
+        if (suggestionsAbove) SuggestionDropdown()
+
         // Main search field
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -114,7 +175,7 @@ fun SearchBar(
                         ) {
                             if (query.isEmpty()) {
                                 Text(
-                                    text = "Search courses, e.g. CMSC132",
+                                    text = "Try CMSC132 or @Smith",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = JupiterpTheme.extendedColors.textSecondary
                                 )
@@ -169,6 +230,9 @@ fun SearchBar(
             }
         }
 
+        // On tablet the search bar is at the top, so the dropdown renders below the field.
+        if (!suggestionsAbove) SuggestionDropdown()
+
         // Active filters row (compact squircle style)
         AnimatedVisibility(
             visible = hasActiveFilters,
@@ -179,6 +243,17 @@ fun SearchBar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = PaddingValues(horizontal = 4.dp)
             ) {
+                // Instructor filter chip (sticky — set by suggestion click)
+                selectedInstructor?.takeIf { it.isNotEmpty() }?.let { name ->
+                    item {
+                        FilterChip(
+                            label = "@$name",
+                            selected = true,
+                            onClick = onClearInstructor
+                        )
+                    }
+                }
+
                 // Department filter chip
                 selectedDepartment?.let { dept ->
                     item {

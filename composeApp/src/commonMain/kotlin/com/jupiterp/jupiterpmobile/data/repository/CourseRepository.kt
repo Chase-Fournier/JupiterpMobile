@@ -8,6 +8,9 @@ import com.jupiterp.jupiterpmobile.data.model.toDomain
 import com.jupiterp.jupiterpmobile.domain.model.Course
 import com.jupiterp.jupiterpmobile.domain.model.Department
 import com.jupiterp.jupiterpmobile.domain.model.Instructor
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -36,11 +39,16 @@ class CourseRepository(
         onlyOpen: Boolean? = null,
         limit: Int = 100
     ): Result<List<Course>> {
-        // Build the prefix from query or department
         val prefix = when {
             !query.isNullOrBlank() -> query.uppercase()
             !department.isNullOrBlank() -> department.uppercase()
             else -> null
+        }
+
+        // Without a prefix, /courses/withSections ignores the instructor filter and returns nothing.
+        // Route through sections first instead.
+        if (prefix == null && genEds.isNullOrEmpty() && !instructor.isNullOrBlank()) {
+            return searchCoursesByInstructor(instructor, onlyOpen, limit)
         }
 
         val courseParams = CourseSearchParams(
@@ -87,14 +95,55 @@ class CourseRepository(
     }
 
     /**
+     * Fetch active instructors for autocomplete. The API caps each request at 500 and
+     * returns ~2.6k entries unsorted, so we pull pages in parallel and sort client-side.
+     */
+    suspend fun getAllInstructorsForSuggestions(): Result<List<Instructor>> = runCatching {
+        coroutineScope {
+            val pageSize = 500
+            val maxPages = 8
+            (0 until maxPages).map { idx ->
+                async {
+                    apiClient.getActiveInstructors(
+                        InstructorSearchParams(limit = pageSize, offset = idx * pageSize)
+                    ).getOrNull().orEmpty()
+                }
+            }.awaitAll()
+                .flatten()
+                .distinctBy { it.name }
+                .map { it.toDomain() }
+                .sortedBy { it.name }
+        }
+    }
+
+    /**
      * Get all active instructors (teaching this semester)
      */
     suspend fun getActiveInstructors(limit: Int = 500): Result<List<Instructor>> {
         return apiClient.getActiveInstructors(
-            InstructorSearchParams(limit = limit, sortBy = "name.asc")
+            InstructorSearchParams(limit = limit)
         ).map { instructors ->
-            instructors.map { it.toDomain() }
+            instructors.map { it.toDomain() }.sortedBy { it.name }
         }
+    }
+
+    /**
+     * When only instructor is provided (no course prefix), the /courses/withSections
+     * endpoint returns nothing. Use a two-step lookup instead.
+     */
+    suspend fun searchCoursesByInstructor(
+        instructor: String,
+        onlyOpen: Boolean? = null,
+        limit: Int = 100
+    ): Result<List<Course>> {
+        val sectionsResult = apiClient.getSections(
+            SectionSearchParams(instructor = instructor, onlyOpen = onlyOpen, limit = limit)
+        )
+        val courseCodes = sectionsResult.getOrElse { return Result.failure(it) }
+            .map { it.courseCode }.distinct()
+        if (courseCodes.isEmpty()) return Result.success(emptyList())
+        return apiClient.getCoursesWithSections(CourseSearchParams(courseCodes = courseCodes))
+            .map { courses -> courses.map { it.toDomain() } }
     }
 
     /**

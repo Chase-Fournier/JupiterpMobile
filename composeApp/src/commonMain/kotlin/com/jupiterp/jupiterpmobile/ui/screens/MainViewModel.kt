@@ -14,6 +14,8 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
+import com.jupiterp.jupiterpmobile.generateIcsContent
+import com.jupiterp.jupiterpmobile.shareIcs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -37,6 +39,11 @@ class MainViewModel(
 
     private val _selectedGenEds = MutableStateFlow<List<String>>(emptyList())
     val selectedGenEds: StateFlow<List<String>> = _selectedGenEds.asStateFlow()
+
+    // Sticky instructor filter applied by tapping an @-suggestion. Lives outside
+    // the query string so users can type a course code without retyping @Name.
+    private val _selectedInstructor = MutableStateFlow<String?>(null)
+    val selectedInstructor: StateFlow<String?> = _selectedInstructor.asStateFlow()
 
     private val _coursesState = MutableStateFlow<ApiState<List<Course>>>(ApiState.Empty)
     val coursesState: StateFlow<ApiState<List<Course>>> = _coursesState.asStateFlow()
@@ -74,10 +81,27 @@ class MainViewModel(
     private val _instructorRatings = MutableStateFlow<Map<String, Instructor>>(emptyMap())
     val instructorRatings: StateFlow<Map<String, Instructor>> = _instructorRatings.asStateFlow()
 
+    // All instructors for @mention autocomplete
+    private val _allInstructors = MutableStateFlow<List<Instructor>>(emptyList())
+
+    val instructorSuggestions: StateFlow<List<String>> = combine(
+        _searchQuery, _allInstructors
+    ) { query, instructors ->
+        val atIdx = query.indexOf('@')
+        if (atIdx < 0) return@combine emptyList()
+        val token = query.substring(atIdx + 1).trim()
+        if (token.length < 2) return@combine emptyList()
+        instructors
+            .map { it.name }
+            .filter { it.contains(token, ignoreCase = true) }
+            .take(5)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private var searchJob: Job? = null
 
     init {
         loadDepartments()
+        loadAllInstructors()
     }
 
     /**
@@ -92,6 +116,18 @@ class MainViewModel(
                 }
                 .onFailure { error ->
                     _departmentsState.value = ApiState.Error(error.message ?: "Failed to load departments")
+                }
+        }
+    }
+
+    /**
+     * Load all instructors for @mention autocomplete
+     */
+    private fun loadAllInstructors() {
+        viewModelScope.launch {
+            courseRepository.getAllInstructorsForSuggestions()
+                .onSuccess { instructors ->
+                    _allInstructors.value = instructors
                 }
         }
     }
@@ -134,18 +170,35 @@ class MainViewModel(
         _searchQuery.value = ""
         _selectedDepartment.value = null
         _selectedGenEds.value = emptyList()
+        _selectedInstructor.value = null
         _coursesState.value = ApiState.Empty
     }
 
     /**
-     * Search courses with current filters
+     * Remove the sticky instructor filter (chip "X" button)
+     */
+    fun clearInstructorFilter() {
+        _selectedInstructor.value = null
+        searchCourses()
+    }
+
+    /**
+     * Search courses with current filters, supporting @instructor syntax
      */
     fun searchCourses() {
-        val query = _searchQuery.value.trim()
+        val rawQuery = _searchQuery.value.trim()
         val department = _selectedDepartment.value
         val genEds = _selectedGenEds.value
 
-        if (query.isEmpty() && department == null && genEds.isEmpty()) {
+        // Parse @instructor token from query — only used if no sticky filter is set
+        val atIdx = rawQuery.indexOf('@')
+        val courseQuery = if (atIdx >= 0) rawQuery.substring(0, atIdx).trim() else rawQuery
+        val inlineInstructor = if (atIdx >= 0) rawQuery.substring(atIdx + 1).trim().ifEmpty { null } else null
+
+        // Sticky filter (set by suggestion click) wins over inline @ syntax
+        val instructorQuery = _selectedInstructor.value ?: inlineInstructor
+
+        if (courseQuery.isEmpty() && department == null && genEds.isEmpty() && instructorQuery == null) {
             _coursesState.value = ApiState.Empty
             return
         }
@@ -154,9 +207,10 @@ class MainViewModel(
             _coursesState.value = ApiState.Loading
 
             courseRepository.searchCourses(
-                query = query.ifEmpty { null },
+                query = courseQuery.ifEmpty { null },
                 department = department,
-                genEds = genEds.ifEmpty { null }
+                genEds = genEds.ifEmpty { null },
+                instructor = instructorQuery
             ).onSuccess { courses ->
                 _coursesState.value = if (courses.isEmpty()) {
                     ApiState.Empty
@@ -336,6 +390,33 @@ class MainViewModel(
      */
     fun setSearchFocused(focused: Boolean) {
         _isSearchFocused.value = focused
+    }
+
+    /**
+     * Apply the picked instructor as a sticky filter and clear the @-token from the
+     * query so the user can immediately type a course code.
+     */
+    fun selectInstructorSuggestion(name: String) {
+        val current = _searchQuery.value
+        val atIdx = current.indexOf('@')
+        val remainingCoursePart = if (atIdx >= 0) current.substring(0, atIdx).trim() else current.trim()
+        _searchQuery.value = remainingCoursePart
+        _selectedInstructor.value = name
+        searchJob?.cancel()
+        searchCourses()
+    }
+
+    /**
+     * Export current schedule as .ics file via native share sheet
+     */
+    fun exportSchedule() {
+        val selections = currentSelections.value
+        if (selections.isEmpty()) {
+            showSnackbar("No courses in schedule to export")
+            return
+        }
+        val icsContent = generateIcsContent(selections)
+        shareIcs(icsContent, "jupiterp_schedule.ics")
     }
 
     /**
