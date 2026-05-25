@@ -45,7 +45,7 @@ class JupiterpApiClient {
 
         install(Logging) {
             logger = Logger.DEFAULT
-            level = LogLevel.INFO
+            level = LogLevel.NONE
         }
 
         install(HttpTimeout) {
