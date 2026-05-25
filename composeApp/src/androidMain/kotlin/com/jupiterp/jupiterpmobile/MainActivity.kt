@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.view.WindowCompat
 import com.jupiterp.jupiterpmobile.data.storage.AndroidContextHolder
 
 /**
@@ -17,9 +16,10 @@ class MainActivity : ComponentActivity() {
 
         // Set context for storage - MUST be before setContent
         AndroidContextHolder.appContext = applicationContext
-        // Enable edge-to-edge display
+        // Edge-to-edge implicitly disables decor fitting; calling
+        // WindowCompat.setDecorFitsSystemWindows(false) here would be redundant
+        // and can shadow enableEdgeToEdge's smart system-bar styling.
         enableEdgeToEdge()
-        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
             App()

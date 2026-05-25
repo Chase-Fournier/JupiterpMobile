@@ -11,9 +11,17 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!--
+            adjustNothing: the system does not resize, pan, or otherwise touch
+            the window when the keyboard opens. Compose owns the IME inset via
+            Modifier.imePadding(). This keeps Compose's layout coordinates
+            consistent with the actual rendering, which is what the cursor
+            handle popup uses for positioning.
+        -->
         <activity
             android:exported="true"
-            android:name=".MainActivity">
+            android:name=".MainActivity"
+            android:windowSoftInputMode="adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

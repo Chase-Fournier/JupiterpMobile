@@ -234,8 +234,10 @@ private fun PhoneLayout(
             .fillMaxSize()
             .imePadding()
     ) {
-        // BoxWithConstraints' maxHeight already reflects imePadding, so the sheet
-        // never overflows when the keyboard opens.
+        // Manifest is set to adjustNothing, so the system leaves the window
+        // alone — Compose handles the IME inset here, exactly once. This keeps
+        // the layout coordinates consistent with what's actually drawn, which
+        // is what the BasicTextField cursor handle popup uses.
         val containerHeight = constraints.maxHeight.toFloat()
         val maxExpandedRatio = 0.85f
         val maxExpandedHeightPx = containerHeight * maxExpandedRatio
@@ -296,8 +298,9 @@ private fun PhoneLayout(
             }
         }
 
-        // Background: Schedule view
-        Column(modifier = Modifier.fillMaxSize()) {
+        // Background: Schedule view. Only nav-bar padding; the system handles
+        // the keyboard inset by resizing the window.
+        Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
             CompactHeader(
                 selectedCount = currentSelections.size,
                 totalCredits = viewModel.getTotalCredits(),
@@ -318,7 +321,8 @@ private fun PhoneLayout(
             Spacer(modifier = Modifier.height(collapsedHeightDp))
         }
 
-        // Bottom sheet - expands upward from bottom
+        // Bottom sheet - sits at the bottom; system already moves the bottom
+        // edge above the keyboard, so no offset is required.
         if (containerHeight > 0 && sheetHeightPx.value > 0) {
             val heightDp = with(density) { sheetHeightPx.value.toDp() }
 
@@ -436,18 +440,15 @@ private fun PhoneLayout(
                         }
                     }
 
-                    // Search bar - always at bottom.
-                    // The outer Box already applies imePadding, so use
-                    // navigationBars.exclude(ime) here — otherwise the nav-bar
-                    // inset (~48dp) leaves a gap between this row and the keyboard.
+                    // Search bar - always at bottom. Only nav-bar padding; the
+                    // system already lifts the sheet above the keyboard, so any
+                    // IME handling here would double-count.
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .padding(top = 8.dp)
-                            .windowInsetsPadding(
-                                WindowInsets.navigationBars.exclude(WindowInsets.ime)
-                            )
+                            .navigationBarsPadding()
                             .padding(bottom = 8.dp)
                     ) {
                         com.jupiterp.jupiterpmobile.ui.components.SearchBar(
@@ -496,9 +497,7 @@ private fun TabletLayout(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding()
+        modifier = modifier.fillMaxSize()
     ) {
         // Full-width header
         CompactHeader(
