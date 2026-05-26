@@ -2,6 +2,8 @@
 
 A Kotlin Multiplatform mobile application for University of Maryland students to search courses, view sections with professor ratings, and build visual weekly schedules.
 
+> This app is a mobile client built on top of the [Jupiterp](https://github.com/atcupps/Jupiterp) web platform. Jupiterp is a website that helps University of Maryland students plan their schedules and make informed course decisions — it provides course search, section listings with professor reviews from PlanetTerp, and a visual schedule builder. It is primarily managed and maintained by [@atcupps](https://github.com/atcupps) and is not officially affiliated with the University of Maryland. The backend API powering this app comes from the [jupiterp-umd](https://github.com/jupiterp-umd) GitHub group.
+
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-brightgreen)
 ![Kotlin](https://img.shields.io/badge/kotlin-2.3.0-purple)
 ![Compose](https://img.shields.io/badge/Compose%20Multiplatform-1.10.0-blue)
