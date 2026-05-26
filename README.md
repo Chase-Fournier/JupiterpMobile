@@ -1,150 +1,118 @@
 # Jupiterp - KMP Course Planner
 
-A beautiful Kotlin Multiplatform mobile application for University of Maryland students to search courses, view sections with professor ratings, and build visual weekly schedules.
+A Kotlin Multiplatform mobile application for University of Maryland students to search courses, view sections with professor ratings, and build visual weekly schedules.
 
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20iOS-brightgreen)
-![Kotlin](https://img.shields.io/badge/kotlin-2.0.20-purple)
-![Compose](https://img.shields.io/badge/Compose%20Multiplatform-1.6.11-blue)
+![Kotlin](https://img.shields.io/badge/kotlin-2.3.0-purple)
+![Compose](https://img.shields.io/badge/Compose%20Multiplatform-1.10.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
-The app features:
-- Single-screen design with gesture-based navigation
-- Schedule view as the primary screen
-- Search panel that slides up from bottom
-- Collapsible selected courses list
-- Compact header with quick stats
-- Settings accessible via menu
-- Color-coded schedule blocks for easy course differentiation
-- GenEd badges with orange accent colors
-- Professor rating chips with color indicators
-- Seat availability indicators
+- **Course Search** — Real-time search with 300ms debounce, department filter, and GenEd multi-select
+- **Instructor Search** — Type `@Name` in the search bar to filter by professor; tap a suggestion to apply a sticky filter chip
+- **Professor Ratings** — Color-coded RateMyProfessors rating chips on each section
+- **Seat Availability** — Color-coded open/waitlisted/closed seat badges
+- **Schedule Builder** — Visual weekly grid (8am–10pm) with pastel color-coded blocks and automatic conflict detection
+- **Calendar Export** — Adds recurring weekly events directly to the device calendar (EventKit on iOS, calendar app import on Android)
+- **Save / Load Schedules** — Save multiple named schedules and restore them later
+- **Single-Screen Design** — Schedule is always visible; search panel slides up from the bottom
 
 ## Architecture
 
 ```
-jupiterp/
-├── composeApp/
-│   └── src/
-│       ├── commonMain/           # Shared code
-│       │   └── kotlin/com/jupiterp/
-│       │       ├── data/
-│       │       │   ├── api/      # Ktor HTTP client
-│       │       │   ├── model/    # API response models
-│       │       │   └── repository/ # Data repositories
-│       │       ├── domain/
-│       │       │   └── model/    # Domain models
-│       │       ├── ui/
-│       │       │   ├── components/ # Reusable UI components
-│       │       │   ├── screens/   # Main screens & ViewModels
-│       │       │   └── theme/     # Material 3 theme
-│       │       └── di/           # Koin dependency injection
-│       ├── androidMain/          # Android-specific code
-│       └── iosMain/              # iOS-specific code
-├── iosApp/                       # iOS app wrapper (Swift)
-└── gradle/                       # Version catalog
+composeApp/
+└── src/
+    ├── commonMain/           # Shared Kotlin code (UI, ViewModels, repositories, API)
+    ├── androidMain/          # Android platform code (calendar intent, context holder)
+    ├── appleMain/            # Apple platform code (storage)
+    └── iosMain/              # iOS platform code (EventKit calendar, view controller)
+iosApp/                       # Swift/Xcode iOS wrapper
+gradle/                       # Version catalog
 ```
 
 ## Tech Stack
 
 | Category | Technology |
 |----------|------------|
-| **Language** | Kotlin 2.0.20 |
-| **UI Framework** | Compose Multiplatform 1.6.11 |
+| **Language** | Kotlin 2.3.0 |
+| **UI Framework** | Compose Multiplatform 1.10.0 |
 | **Design System** | Material 3 |
-| **Networking** | Ktor Client 2.3.12 |
-| **Serialization** | kotlinx.serialization 1.7.1 |
-| **DI** | Koin 3.5.6 |
+| **Networking** | Ktor Client 3.3.3 |
+| **Serialization** | kotlinx.serialization 1.9.0 |
+| **DI** | Koin 4.1.1 |
 | **State Management** | Kotlin Flow + ViewModel |
-| **Navigation** | Jetpack Navigation Compose |
-| **Date/Time** | kotlinx-datetime 0.6.1 |
 | **Persistence** | DataStore Preferences |
-
-### Component Library
-
-- `CourseCard` - Expandable card with course details and sections
-- `SectionRow` - Section details with add/remove functionality
-- `WeeklyScheduleView` - Visual schedule grid with time slots
-- `ScheduleBlockView` - Color-coded schedule blocks
-- `SearchBar` - Compact search with filter chips (squircle style)
-- `FilterChip` - Small squircle-shaped filter indicators
-- `GenEdBadge` - Orange-accented GenEd requirement badges
-- `RatingChip` - Color-coded professor rating indicators
-- `SeatsBadge` - Color-coded seat availability
-
-### Single-Screen Design
-- Schedule view is always visible as the main screen
-- Search panel slides up from bottom with swipe gestures
-- Compact header shows course count and total credits
-- Settings accessible via menu (three-dot icon)
-
-### Course Search
-- Real-time search with 300ms debounce
-- Department filter dropdown
-- GenEd multi-select grid (FSAW, FSAR, DSSP, etc.)
-- Compact squircle-style filter chips
-- Results overlay with swipe-down to dismiss
-
-### Schedule Builder
-- Visual weekly grid (8am-10pm, auto-adjusts to classes)
-- Pastel color-coded blocks for each course
-- Automatic conflict detection
-- Collapsible selected courses list (collapsed by default)
-- Clear schedule option in settings menu
-
-### State Management
-- `MainViewModel` handles all UI state
-- `CourseRepository` for API calls
-- `ScheduleRepository` for schedule state
-- Kotlin Flow for reactive updates
 
 ## Project Structure
 
 ```
-/home/claude/jupiterp/
-├── build.gradle.kts              # Root build config
-├── settings.gradle.kts           # Project settings
-├── gradle/libs.versions.toml     # Version catalog
-└── composeApp/
-    ├── build.gradle.kts          # App build config
-    └── src/
-        ├── commonMain/kotlin/com/jupiterp/
-        │   ├── App.kt                        # Entry point
-        │   ├── data/
-        │   │   ├── api/JupiterpApiClient.kt  # HTTP client
-        │   │   ├── model/ApiModels.kt        # API models
-        │   │   ├── model/Mappers.kt          # Model mappers
-        │   │   ├── repository/CourseRepository.kt
-        │   │   └── repository/ScheduleRepository.kt
-        │   ├── domain/model/DomainModels.kt  # Domain models
-        │   ├── ui/
-        │   │   ├── components/
-        │   │   │   ├── CommonComponents.kt   # Shared components
-        │   │   │   ├── SearchBar.kt          # Search UI
-        │   │   │   ├── CourseCard.kt         # Course cards
-        │   │   │   └── ScheduleView.kt       # Schedule grid
-        │   │   ├── screens/
-        │   │   │   ├── MainScreen.kt         # Main UI
-        │   │   │   └── MainViewModel.kt      # State management
-        │   │   └── theme/Theme.kt            # Material 3 theme
-        │   └── di/AppModule.kt               # Koin DI
-        ├── androidMain/
-        │   ├── AndroidManifest.xml
-        │   ├── kotlin/com/jupiterp/MainActivity.kt
-        │   └── res/
-        │       ├── values/themes.xml
-        │       └── xml/network_security_config.xml
-        └── iosMain/
-            └── kotlin/com/jupiterp/MainViewController.kt
+composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/
+├── App.kt                              # Compose entry point
+├── Platform.kt                         # expect declarations (calendar, date)
+├── Util.kt                             # ICS generation, semester dates
+├── data/
+│   ├── api/JupiterpApiClient.kt        # Ktor HTTP client
+│   ├── model/ApiModels.kt              # API response models
+│   ├── model/Mappers.kt                # API → domain model mappers
+│   ├── repository/CourseRepository.kt  # Course + instructor search
+│   ├── repository/ScheduleRepository.kt
+│   └── storage/
+├── domain/model/DomainModels.kt        # Domain models
+├── ui/
+│   ├── components/                     # CourseCard, SearchBar, ScheduleView, …
+│   ├── screens/
+│   │   ├── MainScreen.kt               # Main UI (phone + tablet layouts)
+│   │   └── MainViewModel.kt            # UI state & business logic
+│   └── theme/Theme.kt
+└── di/AppModule.kt                     # Koin dependency injection
+
+composeApp/src/androidMain/
+├── AndroidManifest.xml
+├── kotlin/com/jupiterp/jupiterpmobile/
+│   ├── MainActivity.kt
+│   └── Platform.android.kt             # Calendar intent (ACTION_VIEW + ICS file)
+└── res/xml/network_security_config.xml
+
+composeApp/src/iosMain/kotlin/com/jupiterp/jupiterpmobile/
+├── MainViewController.kt
+└── Platform.ios.kt                     # EventKit calendar integration
+```
+
+## Building
+
+### Prerequisites
+
+- Android Studio Meerkat or newer
+- JDK 21 (`export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home`)
+- For iOS: Xcode 15+ with command-line tools (`xcode-select --install`)
+
+### Android
+
+Open the project in Android Studio and run the `composeApp` configuration, or from the terminal:
+
+```bash
+./gradlew :composeApp:assembleDebug
+```
+
+### iOS
+
+Open `iosApp/iosApp.xcworkspace` in Xcode and run on a simulator or device, or build the shared framework first:
+
+```bash
+./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64
 ```
 
 ## Configuration
 
 ### Android
 - Min SDK: 24 (Android 7.0)
-- Target SDK: 34 (Android 14)
-- Compile SDK: 34
+- Target SDK: 36
 
 ### iOS
-- iOS 15+ deployment target
-- arm64 architecture support
+- Deployment target: iOS 15+
+- Calendar access: the app requests `NSCalendarsFullAccessUsageDescription` permission at export time to write recurring events via EventKit
+
+## License
+
+MIT — see [LICENSE](LICENSE)
