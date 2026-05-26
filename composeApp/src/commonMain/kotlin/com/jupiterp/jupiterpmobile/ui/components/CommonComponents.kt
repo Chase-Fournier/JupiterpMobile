@@ -225,7 +225,8 @@ fun SectionRow(
     isSelected: Boolean,
     instructorRating: Float?,
     onToggle: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hasConflict: Boolean = false
 ) {
     val backgroundColor = if (isSelected) {
         JupiterpTheme.extendedColors.orangeContainer
@@ -300,20 +301,28 @@ fun SectionRow(
                 )
 
                 // Selection indicator
+                val indicatorBg = when {
+                    isSelected -> JupiterpTheme.extendedColors.orange
+                    hasConflict -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }
                 Box(
                     modifier = Modifier
                         .size(24.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (isSelected) JupiterpTheme.extendedColors.orange
-                            else MaterialTheme.colorScheme.surfaceVariant
-                        ),
+                        .background(indicatorBg),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isSelected) {
-                        Icon(
+                    when {
+                        isSelected -> Icon(
                             imageVector = Icons.Filled.Check,
                             contentDescription = "Selected",
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White
+                        )
+                        hasConflict -> Icon(
+                            imageVector = Icons.Outlined.Schedule,
+                            contentDescription = "Time conflict",
                             modifier = Modifier.size(16.dp),
                             tint = Color.White
                         )

@@ -330,6 +330,18 @@ class ScheduleRepository(
     }
 
     /**
+     * Check if adding this section would conflict with currently selected sections.
+     * Returns false if the section is already selected.
+     */
+    fun hasConflict(courseCode: String, section: Section): Boolean {
+        val current = _currentSelections.value
+        if (current.any { it.course.courseCode == courseCode && it.section.sectionCode == section.sectionCode }) {
+            return false
+        }
+        return findConflicts(section, current).isNotEmpty()
+    }
+
+    /**
      * Persist current schedule to storage
      */
     private fun persistCurrentSchedule() {

@@ -34,7 +34,8 @@ fun CourseCard(
     getInstructorRating: (String) -> Float?,
     onSectionToggle: (Section) -> Unit,
     onAddCourseWithoutSection: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hasConflict: (Section) -> Boolean = { false }
 ) {
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
@@ -73,7 +74,8 @@ fun CourseCard(
                     isCourseSelected = isCourseSelected,
                     getInstructorRating = getInstructorRating,
                     onSectionToggle = onSectionToggle,
-                    onAddCourseWithoutSection = onAddCourseWithoutSection
+                    onAddCourseWithoutSection = onAddCourseWithoutSection,
+                    hasConflict = hasConflict
                 )
             }
         }
@@ -211,7 +213,8 @@ private fun CourseSections(
     getInstructorRating: (String) -> Float?,
     onSectionToggle: (Section) -> Unit,
     onAddCourseWithoutSection: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hasConflict: (Section) -> Boolean = { false }
 ) {
     Column(
         modifier = modifier.padding(
@@ -343,7 +346,8 @@ private fun CourseSections(
                     section = section,
                     isSelected = isSelected,
                     instructorRating = instructorRating,
-                    onToggle = { onSectionToggle(section) }
+                    onToggle = { onSectionToggle(section) },
+                    hasConflict = hasConflict(section)
                 )
             }
         }

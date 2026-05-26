@@ -357,6 +357,13 @@ class MainViewModel(
     }
 
     /**
+     * Check if section would conflict with current schedule
+     */
+    fun hasConflict(courseCode: String, section: Section): Boolean {
+        return scheduleRepository.hasConflict(courseCode, section)
+    }
+
+    /**
      * Get schedule blocks for rendering
      */
     fun getScheduleBlocks(): List<ScheduleBlock> {

@@ -447,7 +447,10 @@ private fun PhoneLayout(
                                         viewModel.addCourseWithoutSection(course)
                                     },
                                     hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    hasConflict = remember(currentSelections) {
+                                        { code, section -> viewModel.hasConflict(code, section) }
+                                    }
                                 )
                             }
                         }
@@ -596,7 +599,10 @@ private fun TabletLayout(
                             viewModel.addCourseWithoutSection(course)
                         },
                         hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        hasConflict = remember(currentSelections) {
+                            { code, section -> viewModel.hasConflict(code, section) }
+                        }
                     )
                 }
             }
@@ -618,7 +624,8 @@ private fun SearchResultsContent(
     onSectionToggle: (Course, Section) -> Unit,
     onAddCourseWithoutSection: (Course) -> Unit,
     hasActiveSearch: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hasConflict: (String, Section) -> Boolean = { _, _ -> false }
 ) {
     // Use surfaceContainerHigh to match the sheet background
     val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -658,7 +665,8 @@ private fun SearchResultsContent(
                             isCourseSelected = isCourseSelected(course.courseCode),
                             getInstructorRating = getInstructorRating,
                             onSectionToggle = { onSectionToggle(course, it) },
-                            onAddCourseWithoutSection = { onAddCourseWithoutSection(course) }
+                            onAddCourseWithoutSection = { onAddCourseWithoutSection(course) },
+                            hasConflict = { hasConflict(course.courseCode, it) }
                         )
                     }
                 }
