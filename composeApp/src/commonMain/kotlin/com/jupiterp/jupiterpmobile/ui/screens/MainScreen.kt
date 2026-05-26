@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -306,7 +307,12 @@ private fun PhoneLayout(
         Column(modifier = Modifier
             .fillMaxSize()
             .navigationBarsPadding()
-            .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
+            .pointerInput(isExpanded) {
+                detectTapGestures {
+                    focusManager.clearFocus()
+                    if (isExpanded) collapse()
+                }
+            }
         ) {
             CompactHeader(
                 selectedCount = currentSelections.size,
@@ -983,6 +989,7 @@ private fun SettingsBottomSheet(
     onClearSchedule: () -> Unit,
     onExportCalendar: () -> Unit = {}
 ) {
+    val uriHandler = LocalUriHandler.current
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
     // Delete confirmation dialog
@@ -1308,7 +1315,9 @@ private fun SettingsBottomSheet(
 
             // About
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { uriHandler.openUri("https://github.com/Chase-Fournier/JupiterpMobile") },
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
@@ -1318,14 +1327,20 @@ private fun SettingsBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Outlined.Info, null, tint = JupiterpTheme.extendedColors.textSecondary)
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text("About Jupiterp", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                         Text(
-                            "Course planner for UMD students",
+                            "View on GitHub",
                             style = MaterialTheme.typography.bodySmall,
                             color = JupiterpTheme.extendedColors.textSecondary
                         )
                     }
+                    Icon(
+                        Icons.Outlined.OpenInNew,
+                        null,
+                        modifier = Modifier.size(16.dp),
+                        tint = JupiterpTheme.extendedColors.textSecondary
+                    )
                 }
             }
         }
