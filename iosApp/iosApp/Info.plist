@@ -9,5 +9,9 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Jupiterp adds your class schedule directly to your Calendar app.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Jupiterp adds your class schedule directly to your Calendar app.</string>
 </dict>
 </plist>

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.content.FileProvider
 import com.jupiterp.jupiterpmobile.data.storage.AndroidContextHolder
+import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import java.io.File
 
 class AndroidPlatform : Platform {
@@ -20,20 +21,17 @@ actual fun currentDateInt(): Int {
     return y * 10000 + m * 100 + d
 }
 
-actual fun shareIcs(content: String, filename: String) {
-    val context = AndroidContextHolder.appContext ?: return
-    val file = File(context.cacheDir, filename)
+actual fun addToCalendar(selections: List<ScheduleSelection>, onResult: (Boolean) -> Unit) {
+    val context = AndroidContextHolder.appContext ?: run { onResult(false); return }
+    val content = generateIcsContent(selections)
+    val file = File(context.cacheDir, "jupiterp_schedule.ics")
     file.writeText(content)
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "text/calendar"
-        putExtra(Intent.EXTRA_STREAM, uri)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "text/calendar")
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    context.startActivity(
-        Intent.createChooser(send, "Export Calendar").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    )
+    context.startActivity(intent)
+    onResult(true)
 }

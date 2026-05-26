@@ -14,8 +14,7 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
-import com.jupiterp.jupiterpmobile.generateIcsContent
-import com.jupiterp.jupiterpmobile.shareIcs
+import com.jupiterp.jupiterpmobile.addToCalendar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -407,7 +406,7 @@ class MainViewModel(
     }
 
     /**
-     * Export current schedule as .ics file via native share sheet
+     * Export current schedule to the device calendar
      */
     fun exportSchedule() {
         val selections = currentSelections.value
@@ -415,8 +414,10 @@ class MainViewModel(
             showSnackbar("No courses in schedule to export")
             return
         }
-        val icsContent = generateIcsContent(selections)
-        shareIcs(icsContent, "jupiterp_schedule.ics")
+        addToCalendar(selections) { success ->
+            if (success) showSnackbar("Schedule added to Calendar")
+            else showSnackbar("Could not access Calendar — check permissions")
+        }
     }
 
     /**

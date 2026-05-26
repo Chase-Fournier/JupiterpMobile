@@ -62,7 +62,7 @@ fun generateIcsContent(selections: List<ScheduleSelection>): String {
 // Apr–Oct  → Fall of this year
 // Nov–Dec  → Spring of next year
 // To add a future semester, add its year to the relevant map.
-private data class SemesterDates(val firstMondayInt: Int, val endIcs: String)
+internal data class SemesterDates(val firstMondayInt: Int, val endIcs: String)
 
 private val FALL = mapOf(
     2025 to SemesterDates(20250825, "20251217T235959Z"),
@@ -76,7 +76,7 @@ private val SPRING = mapOf(
     2028 to SemesterDates(20280124, "20280517T235959Z"),
 )
 
-private fun activeSemester(): SemesterDates {
+internal fun activeSemester(): SemesterDates {
     val today = currentDateInt()
     val year = today / 10000
     val month = (today / 100) % 100
@@ -105,7 +105,7 @@ private fun icsDateForDay(day: DayOfWeek, firstMondayInt: Int): String {
     }
 }
 
-private fun daysInMonth(year: Int, month: Int) = when (month) {
+internal fun daysInMonth(year: Int, month: Int) = when (month) {
     1, 3, 5, 7, 8, 10, 12 -> 31
     4, 6, 9, 11 -> 30
     2 -> if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) 29 else 28
