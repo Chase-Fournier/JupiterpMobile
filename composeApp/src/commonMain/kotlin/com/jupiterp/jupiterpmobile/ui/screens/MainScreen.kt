@@ -216,7 +216,7 @@ private fun PhoneLayout(
     val focusManager = LocalFocusManager.current
 
     // Sheet dimensions
-    val collapsedHeightDp = 125.dp
+    val collapsedHeightDp = 110.dp
     val collapsedHeightPx = with(density) { collapsedHeightDp.toPx() }
 
     // Sheet height animation - starts at collapsed
@@ -737,7 +737,8 @@ private fun CompactHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp).padding(top = 30.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -746,7 +747,7 @@ private fun CompactHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
 
-                JupiterpLogo(size = 128.dp)
+                JupiterpLogo(size = 120.dp)
 
             }
 

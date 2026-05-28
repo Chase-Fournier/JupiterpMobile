@@ -171,19 +171,25 @@ private fun assignLanes(blocks: List<ScheduleBlock>): List<LanedBlock> {
     if (blocks.isEmpty()) return emptyList()
     val sorted = blocks.sortedBy { it.startTime }
     val laneEndTimes = mutableListOf<Float>()
-    val assigned = mutableListOf<Pair<ScheduleBlock, Int>>()
+    val laneAssignment = mutableMapOf<ScheduleBlock, Int>()
     for (block in sorted) {
         val lane = laneEndTimes.indexOfFirst { it <= block.startTime }
         if (lane == -1) {
             laneEndTimes.add(block.endTime)
-            assigned.add(block to laneEndTimes.lastIndex)
+            laneAssignment[block] = laneEndTimes.lastIndex
         } else {
             laneEndTimes[lane] = block.endTime
-            assigned.add(block to lane)
+            laneAssignment[block] = lane
         }
     }
-    val totalLanes = laneEndTimes.size
-    return assigned.map { (block, lane) -> LanedBlock(block, lane, totalLanes) }
+    // Each block's totalLanes = how many blocks actually overlap with it specifically,
+    // so a lone block far from any conflict gets full width.
+    return blocks.map { block ->
+        val localTotal = blocks.count { other ->
+            other.startTime < block.endTime && other.endTime > block.startTime
+        }
+        LanedBlock(block, laneAssignment[block]!!, localTotal)
+    }
 }
 
 /**
