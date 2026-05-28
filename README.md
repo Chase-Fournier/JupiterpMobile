@@ -9,6 +9,9 @@ A Kotlin Multiplatform mobile application for University of Maryland students to
 ![Compose](https://img.shields.io/badge/Compose%20Multiplatform-1.10.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Beta Testing
+Contact @Chase-Fournier to get into the beta tests on IOS and Android
+
 ## Features
 
 - **Course Search** — Real-time search with 300ms debounce, department filter, and GenEd multi-select
