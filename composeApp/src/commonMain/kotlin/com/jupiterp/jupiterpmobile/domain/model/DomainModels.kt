@@ -49,7 +49,9 @@ data class Section(
         get() = "$openSeats/$totalSeats"
 
     val instructorsDisplay: String
-        get() = if (instructors.isEmpty()) "TBA" else instructors.joinToString(", ")
+        get() = if (instructors.isEmpty()) "TBA" else instructors.joinToString(", ") {
+            if (it.length > 15) it.take(15) + "…" else it
+        }
 
     /**
      * Get all time slots for conflict detection
@@ -114,7 +116,8 @@ data class Classtime(
 
     private fun formatTime(time: Float): String {
         val hours = time.toInt()
-        val minutes = ((time - hours) * 60).toInt()
+        val minutesRaw = ((time - hours) * 60).toInt()
+        val minutes = if (minutesRaw == 49) 50 else minutesRaw
         val period = if (hours >= 12) "PM" else "AM"
         val displayHour = when {
             hours == 0 -> 12

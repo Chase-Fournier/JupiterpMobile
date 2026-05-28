@@ -226,19 +226,31 @@ private fun CourseSections(
     ) {
         // Course description (if available)
         course.description?.let { description ->
+            var descExpanded by remember { mutableStateOf(false) }
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { descExpanded = !descExpanded },
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
-                Text(
-                    text = description,
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = JupiterpTheme.extendedColors.textSecondary,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JupiterpTheme.extendedColors.textSecondary,
+                        maxLines = if (descExpanded) Int.MAX_VALUE else 3,
+                        overflow = if (descExpanded) TextOverflow.Clip else TextOverflow.Ellipsis
+                    )
+                    if (!descExpanded) {
+                        Text(
+                            text = "Show more",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = JupiterpTheme.extendedColors.orange,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
             }
         }
 

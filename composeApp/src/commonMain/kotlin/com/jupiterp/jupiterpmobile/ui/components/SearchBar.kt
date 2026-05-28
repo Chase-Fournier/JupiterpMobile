@@ -3,6 +3,8 @@ package com.jupiterp.jupiterpmobile.ui.components
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -205,7 +207,8 @@ fun SearchBar(
                 // Filter button
                 Box {
                     IconButton(
-                        onClick = { showFilters = !showFilters }
+                        onClick = { showFilters = !showFilters },
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
                     ) {
                         Icon(
                             imageVector = if (showFilters) Icons.Filled.FilterList else Icons.Outlined.FilterList,
@@ -529,10 +532,12 @@ private fun DepartmentPickerDialog(
 
                 // Department list (scrollable)
                 Column(
-                    modifier = Modifier.heightIn(max = 300.dp),
+                    modifier = Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    filteredDepartments.take(20).forEach { dept ->
+                    filteredDepartments.forEach { dept ->
                         val isSelected = dept.code == selectedDepartment
 
                         Surface(

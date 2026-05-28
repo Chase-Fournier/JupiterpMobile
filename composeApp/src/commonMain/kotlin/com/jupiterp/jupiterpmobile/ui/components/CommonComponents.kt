@@ -303,7 +303,7 @@ fun SectionRow(
                 // Selection indicator
                 val indicatorBg = when {
                     isSelected -> JupiterpTheme.extendedColors.orange
-                    hasConflict -> MaterialTheme.colorScheme.error
+                    hasConflict -> MaterialTheme.colorScheme.surfaceVariant
                     else -> MaterialTheme.colorScheme.surfaceVariant
                 }
                 Box(
@@ -324,7 +324,7 @@ fun SectionRow(
                             imageVector = Icons.Outlined.Schedule,
                             contentDescription = "Time conflict",
                             modifier = Modifier.size(16.dp),
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
                     }
                 }

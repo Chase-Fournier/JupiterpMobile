@@ -279,7 +279,7 @@ class MainViewModel(
                 val conflicts = result.conflictingSelections
                     .map { it.course.courseCode }
                     .joinToString(", ")
-                showSnackbar("Time conflict with: $conflicts")
+                showSnackbar("Added with conflict: $conflicts")
             }
         }
     }

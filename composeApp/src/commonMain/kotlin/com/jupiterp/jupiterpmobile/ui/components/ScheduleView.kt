@@ -49,7 +49,7 @@ fun WeeklyScheduleView(
 
     val hourHeight = 60.dp
     val dayWidth = 0.dp // Will be calculated dynamically
-    val timeColumnWidth = 48.dp
+    val timeColumnWidth = 42.dp
     val headerHeight = 40.dp
 
     val scrollState = rememberScrollState()
@@ -66,13 +66,12 @@ fun WeeklyScheduleView(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Day headers with rounded corners
+        // Day headers
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(headerHeight),
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
+            color = Color.Transparent
         ) {
             Row(
                 modifier = Modifier.fillMaxSize()
@@ -99,8 +98,6 @@ fun WeeklyScheduleView(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
         // Schedule grid
         Box(
             modifier = Modifier
@@ -122,7 +119,7 @@ fun WeeklyScheduleView(
                         ) {
                             Text(
                                 text = formatHour(hour),
-                                modifier = Modifier.padding(end = 8.dp, top = 4.dp),
+                                modifier = Modifier.padding(end = 6.dp, top = 4.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = JupiterpTheme.extendedColors.textSecondary
                             )
@@ -132,34 +129,61 @@ fun WeeklyScheduleView(
 
                 // Days columns with schedule blocks
                 days.forEach { day ->
-                    Box(
+                    BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
                             .height(hourHeight * (actualEndHour - actualStartHour))
                     ) {
+                        val columnWidth = maxWidth
+
                         // Grid lines
                         ScheduleGridLines(
                             hourHeight = hourHeight,
                             hourCount = actualEndHour - actualStartHour
                         )
 
-                        // Schedule blocks for this day
-                        scheduleBlocks
-                            .filter { it.day == day }
-                            .forEach { block ->
-                                ScheduleBlockView(
-                                    block = block,
-                                    startHour = actualStartHour,
-                                    hourHeight = hourHeight,
-                                    onClick = { onBlockClick(block) },
-                                    onRemove = { onRemoveBlock(block) }
-                                )
-                            }
+                        // Assign lanes to overlapping blocks
+                        val dayBlocks = scheduleBlocks.filter { it.day == day }
+                        val lanedBlocks = assignLanes(dayBlocks)
+
+                        lanedBlocks.forEach { (block, lane, totalLanes) ->
+                            ScheduleBlockView(
+                                block = block,
+                                startHour = actualStartHour,
+                                hourHeight = hourHeight,
+                                laneIndex = lane,
+                                totalLanes = totalLanes,
+                                columnWidth = columnWidth,
+                                onClick = { onBlockClick(block) },
+                                onRemove = { onRemoveBlock(block) }
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private data class LanedBlock(val block: ScheduleBlock, val lane: Int, val totalLanes: Int)
+
+private fun assignLanes(blocks: List<ScheduleBlock>): List<LanedBlock> {
+    if (blocks.isEmpty()) return emptyList()
+    val sorted = blocks.sortedBy { it.startTime }
+    val laneEndTimes = mutableListOf<Float>()
+    val assigned = mutableListOf<Pair<ScheduleBlock, Int>>()
+    for (block in sorted) {
+        val lane = laneEndTimes.indexOfFirst { it <= block.startTime }
+        if (lane == -1) {
+            laneEndTimes.add(block.endTime)
+            assigned.add(block to laneEndTimes.lastIndex)
+        } else {
+            laneEndTimes[lane] = block.endTime
+            assigned.add(block to lane)
+        }
+    }
+    val totalLanes = laneEndTimes.size
+    return assigned.map { (block, lane) -> LanedBlock(block, lane, totalLanes) }
 }
 
 /**
@@ -197,7 +221,10 @@ private fun ScheduleBlockView(
     hourHeight: Dp,
     onClick: () -> Unit,
     onRemove: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    laneIndex: Int = 0,
+    totalLanes: Int = 1,
+    columnWidth: Dp = 0.dp
 ) {
     val density = LocalDensity.current
     val topOffset = with(density) {
@@ -206,6 +233,8 @@ private fun ScheduleBlockView(
     val blockHeight = with(density) {
         (block.duration * hourHeight.toPx()).toDp()
     }
+    val blockWidth = if (totalLanes > 1) columnWidth / totalLanes else columnWidth
+    val xOffset = if (totalLanes > 1) blockWidth * laneIndex else 0.dp
 
     val scheduleColors = JupiterpTheme.extendedColors.scheduleColors
     val backgroundColor = scheduleColors[block.colorIndex % scheduleColors.size]
@@ -219,9 +248,9 @@ private fun ScheduleBlockView(
 
     Box(
         modifier = modifier
-            .fillMaxWidth()
+            .then(if (totalLanes > 1) Modifier.width(blockWidth) else Modifier.fillMaxWidth())
             .padding(horizontal = 2.dp)
-            .offset(y = topOffset)
+            .offset(x = xOffset, y = topOffset)
             .height(blockHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(backgroundColor)
@@ -232,7 +261,7 @@ private fun ScheduleBlockView(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.Top
         ) {
             // Department (e.g., CMSC)
             Text(
@@ -240,8 +269,7 @@ private fun ScheduleBlockView(
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Clip
             )
 
             // Course number (e.g., 132)
@@ -250,8 +278,7 @@ private fun ScheduleBlockView(
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor.copy(alpha = 0.9f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Clip
             )
 
             // Location (if space permits)
@@ -260,8 +287,7 @@ private fun ScheduleBlockView(
                     text = block.meeting.location.display,
                     style = MaterialTheme.typography.labelSmall,
                     color = textColor.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Clip
                 )
             }
         }

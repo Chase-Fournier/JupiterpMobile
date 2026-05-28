@@ -737,7 +737,7 @@ private fun CompactHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp).padding(top = 30.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -808,10 +808,8 @@ private fun ScheduleContent(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (selections.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
@@ -838,12 +836,6 @@ private fun ScheduleContent(
                 }
             }
         } else {
-            Surface(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 1.dp
-            ) {
                 WeeklyScheduleView(
                     scheduleBlocks = scheduleBlocks,
                     onBlockClick = { },
@@ -853,9 +845,10 @@ private fun ScheduleContent(
                             block.selection.section.sectionCode
                         )
                     },
-                    modifier = Modifier.padding(8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
                 )
-            }
 
             // Other classes section (async, weekend, TBA)
             OtherClassesSection(
@@ -865,12 +858,15 @@ private fun ScheduleContent(
                         item.selection.course.courseCode,
                         item.selection.section.sectionCode
                     )
-                }
+                },
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
 
             // Collapsible selected courses
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
@@ -919,7 +915,7 @@ private fun ScheduleContent(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 
@@ -1369,7 +1365,9 @@ private fun JupiterpLogo(
             ),
             contentDescription = "Jupiterp Logo",
             modifier = modifier
-                .size(size)
+                .width(size) // <-- Change this to width only
+                .wrapContentHeight()
+               .wrapContentHeight()
                 .clip(RoundedCornerShape(8.dp)),
             contentScale = androidx.compose.ui.layout.ContentScale.Fit
         )

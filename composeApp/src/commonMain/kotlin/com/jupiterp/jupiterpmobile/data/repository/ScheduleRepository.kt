@@ -65,11 +65,8 @@ class ScheduleRepository(
             return AddSectionResult.AlreadyAdded
         }
 
-        // Check for time conflicts
+        // Detect conflicts for caller awareness, but still allow the add
         val conflicts = findConflicts(section, currentList)
-        if (conflicts.isNotEmpty()) {
-            return AddSectionResult.Conflict(conflicts)
-        }
 
         // Add the section
         val selection = ScheduleSelection(
@@ -80,7 +77,7 @@ class ScheduleRepository(
 
         _currentSelections.update { it + selection }
         persistCurrentSchedule()
-        return AddSectionResult.Success
+        return if (conflicts.isNotEmpty()) AddSectionResult.Conflict(conflicts) else AddSectionResult.Success
     }
 
     /**
