@@ -2,6 +2,7 @@ package com.jupiterp.jupiterpmobile.domain.model
 
 import com.jupiterp.jupiterpmobile.toOneDecimalString
 import kotlinx.serialization.Serializable
+import kotlin.math.roundToInt
 
 /**
  * Domain models for the Jupiterp app
@@ -115,9 +116,12 @@ data class Classtime(
         get() = days
 
     private fun formatTime(time: Float): String {
-        val hours = time.toInt()
-        val minutesRaw = ((time - hours) * 60).toInt()
-        val minutes = if (minutesRaw == 49) 50 else minutesRaw
+        // Round to whole minutes; times are stored as float hours, so values
+        // like 19.3333 (7:20 PM) carry precision error that truncation would
+        // turn into 7:19 PM.
+        val totalMinutes = (time * 60).roundToInt()
+        val hours = totalMinutes / 60
+        val minutes = totalMinutes % 60
         val period = if (hours >= 12) "PM" else "AM"
         val displayHour = when {
             hours == 0 -> 12
@@ -216,8 +220,7 @@ data class Department(
 data class ScheduleSelection(
     val course: Course,
     val section: Section,
-    val colorIndex: Int,
-    val isHovered: Boolean = false
+    val colorIndex: Int
 )
 
 @Serializable
@@ -229,23 +232,12 @@ data class StoredSchedule(
     val updatedAt: Long
 )
 
-// Schedule block for rendering
+// Schedule block for rendering. Covers both in-person and online-sync
+// meetings; location is null for online-sync blocks.
 data class ScheduleBlock(
     val selection: ScheduleSelection,
-    val meeting: ClassMeeting.InPerson,
-    val day: DayOfWeek,
-    val startTime: Float,
-    val endTime: Float,
-    val colorIndex: Int
-) {
-    val duration: Float
-        get() = endTime - startTime
-}
-
-// Also handle OnlineSync meetings for rendering
-data class ScheduleBlockSync(
-    val selection: ScheduleSelection,
-    val meeting: ClassMeeting.OnlineSync,
+    val classtime: Classtime,
+    val location: Location?,
     val day: DayOfWeek,
     val startTime: Float,
     val endTime: Float,

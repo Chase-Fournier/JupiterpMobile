@@ -11,8 +11,6 @@ import com.jupiterp.jupiterpmobile.domain.model.Instructor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 
 /**
  * Repository for course-related data operations
@@ -164,31 +162,5 @@ class CourseRepository(
         return apiClient.getInstructorByName(name).map { response ->
             response?.toDomain()
         }
-    }
-
-    /**
-     * Get highly-rated instructors
-     */
-    suspend fun getTopRatedInstructors(minRating: Float = 4.0f, limit: Int = 50): Result<List<Instructor>> {
-        return apiClient.getActiveInstructors(
-            InstructorSearchParams(
-                ratings = listOf("gte.$minRating"),
-                limit = limit,
-                sortBy = "average_rating.desc"
-            )
-        ).map { instructors ->
-            instructors.map { it.toDomain() }
-        }
-    }
-
-    /**
-     * Flow-based search for reactive UI updates
-     */
-    fun searchCoursesFlow(
-        query: String? = null,
-        department: String? = null,
-        genEds: List<String>? = null
-    ): Flow<Result<List<Course>>> = flow {
-        emit(searchCourses(query, department, genEds))
     }
 }

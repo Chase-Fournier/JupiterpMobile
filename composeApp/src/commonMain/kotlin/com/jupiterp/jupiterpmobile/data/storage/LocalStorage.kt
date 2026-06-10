@@ -4,6 +4,8 @@ import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -25,13 +27,34 @@ interface LocalStorage {
     suspend fun saveAppData(data: AppData)
     suspend fun loadAppData(): AppData
     fun getAppDataFlow(): Flow<AppData>
+
+    /**
+     * Atomically read-modify-write the stored app data. All writers must go
+     * through this; separate load + save calls from concurrent coroutines can
+     * interleave and silently drop each other's changes.
+     */
+    suspend fun updateAppData(transform: (AppData) -> AppData)
+}
+
+/**
+ * Shared mutex-based implementation of [LocalStorage.updateAppData] for
+ * implementations whose load/save are plain reads/writes.
+ */
+abstract class MutexGuardedStorage : LocalStorage {
+    private val writeMutex = Mutex()
+
+    override suspend fun updateAppData(transform: (AppData) -> AppData) {
+        writeMutex.withLock {
+            saveAppData(transform(loadAppData()))
+        }
+    }
 }
 
 /**
  * In-memory implementation with JSON serialization hooks
  * Platform-specific implementations should extend this
  */
-class InMemoryLocalStorage : LocalStorage {
+class InMemoryLocalStorage : MutexGuardedStorage() {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true

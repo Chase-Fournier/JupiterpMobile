@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.jupiterp.jupiterpmobile.domain.model.Department
+import com.jupiterp.jupiterpmobile.domain.model.GenEdCodes
 import com.jupiterp.ui.theme.JupiterpTheme
 
 /**
@@ -407,14 +408,7 @@ private fun GenEdFilterGrid(
     onGenEdToggle: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Common UMD GenEd codes
-    val genEdCodes = listOf(
-        "FSAW", "FSAR", "FSMA", "FSOC", "FSPW",
-        "DSHS", "DSHU", "DSNS", "DSNL", "DSSP",
-        "SCIS", "DVUP", "DVCC"
-    )
-
-    val rows = genEdCodes.chunked(5)
+    val rows = GenEdCodes.all.chunked(5)
 
     Column(
         modifier = modifier,

@@ -3,14 +3,20 @@ package com.jupiterp.jupiterpmobile
 import com.jupiterp.jupiterpmobile.domain.model.ClassMeeting
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+import kotlin.math.roundToInt
 
 fun Float.toOneDecimalString(): String {
     val rounded = (this * 10).toInt() / 10.0
     return if (rounded % 1.0 == 0.0) "${rounded.toInt()}.0" else "$rounded"
 }
 
-fun generateIcsContent(selections: List<ScheduleSelection>): String {
-    val semester = activeSemester()
+/**
+ * Builds the .ics text for the current selections, or null if the active
+ * semester's dates aren't in the lookup tables (callers should surface that
+ * instead of exporting events on wrong dates).
+ */
+fun generateIcsContent(selections: List<ScheduleSelection>): String? {
+    val semester = activeSemester() ?: return null
     val sb = StringBuilder()
     sb.append("BEGIN:VCALENDAR\r\n")
     sb.append("VERSION:2.0\r\n")
@@ -76,16 +82,23 @@ private val SPRING = mapOf(
     2028 to SemesterDates(20280124, "20280517T235959Z"),
 )
 
-internal fun activeSemester(): SemesterDates {
+/**
+ * Returns null when the active semester's dates aren't in the tables above —
+ * falling back to another semester would silently export wrong dates.
+ */
+internal fun activeSemester(): SemesterDates? {
     val today = currentDateInt()
     val year = today / 10000
     val month = (today / 100) % 100
     return when {
-        month < 4  -> SPRING[year]      ?: SPRING.values.last()
-        month < 11 -> FALL[year]        ?: FALL.values.last()
-        else       -> SPRING[year + 1]  ?: SPRING.values.last()
+        month < 4  -> SPRING[year]
+        month < 11 -> FALL[year]
+        else       -> SPRING[year + 1]
     }
 }
+
+/** True when calendar export has valid dates for the current semester. */
+fun hasKnownSemesterDates(): Boolean = activeSemester() != null
 
 /**
  * Returns the YYYYMMDD string of the first occurrence of [day] at or after [firstMondayInt].
@@ -113,8 +126,11 @@ internal fun daysInMonth(year: Int, month: Int) = when (month) {
 }
 
 private fun formatIcsTime(decimal: Float): String {
-    val h = decimal.toInt()
-    val m = ((decimal - h) * 60).toInt()
+    // Round to whole minutes; truncating float hours drops a minute for
+    // times like X:20 and X:50 (e.g. 19.3333 -> 19:19)
+    val totalMinutes = (decimal * 60).roundToInt()
+    val h = totalMinutes / 60
+    val m = totalMinutes % 60
     return "${h.toString().padStart(2, '0')}${m.toString().padStart(2, '0')}"
 }
 

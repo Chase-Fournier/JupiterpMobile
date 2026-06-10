@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jupiterp.jupiterpmobile.data.repository.PreferencesRepository
 import com.jupiterp.jupiterpmobile.di.allModules
 import com.jupiterp.jupiterpmobile.ui.screens.MainScreen
 import com.jupiterp.jupiterpmobile.ui.screens.MainViewModel
 import com.jupiterp.ui.theme.JupiterpTheme
 import org.koin.compose.KoinApplication
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /**
@@ -35,7 +37,10 @@ fun App() {
             Surface(
                 modifier = Modifier.fillMaxSize()
             ) {
-                val viewModel: MainViewModel = koinInject()
+                // Resolve through the ViewModelStore so the instance survives
+                // configuration changes and onCleared() actually runs.
+                val koin = getKoin()
+                val viewModel: MainViewModel = viewModel { koin.get<MainViewModel>() }
                 MainScreen(
                     viewModel = viewModel,
                     isDarkMode = isDarkMode,

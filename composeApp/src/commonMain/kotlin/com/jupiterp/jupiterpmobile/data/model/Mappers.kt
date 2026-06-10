@@ -7,6 +7,7 @@ import com.jupiterp.jupiterpmobile.domain.model.Department
 import com.jupiterp.jupiterpmobile.domain.model.Instructor
 import com.jupiterp.jupiterpmobile.domain.model.Location
 import com.jupiterp.jupiterpmobile.domain.model.Section
+import kotlin.math.roundToInt
 
 /**
  * Mappers to convert API response models to domain models
@@ -137,8 +138,11 @@ fun parseTimeToFloat(timeStr: String): Float? {
  * Format a float time back to a display string
  */
 fun formatTimeFromFloat(time: Float): String {
-    val hours24 = time.toInt()
-    val minutes = ((time - hours24) * 60).toInt()
+    // Round to whole minutes to absorb float precision error (e.g. 19.3333
+    // for 7:20 PM would otherwise truncate to 7:19 PM)
+    val totalMinutes = (time * 60).roundToInt()
+    val hours24 = totalMinutes / 60
+    val minutes = totalMinutes % 60
 
     val isPm = hours24 >= 12
     val hours12 = when {

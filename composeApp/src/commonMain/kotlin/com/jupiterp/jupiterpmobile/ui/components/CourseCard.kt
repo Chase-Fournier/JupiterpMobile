@@ -352,7 +352,8 @@ private fun CourseSections(
         } else {
             course.sections.forEach { section ->
                 val isSelected = isSectionSelected(section.sectionCode)
-                val instructorRating = section.instructors.firstOrNull()?.let { getInstructorRating(it) }
+                // Co-taught sections: show the first instructor that has a rating
+                val instructorRating = section.instructors.firstNotNullOfOrNull { getInstructorRating(it) }
 
                 SectionRow(
                     section = section,
@@ -421,10 +422,16 @@ fun CompactCourseCard(
                 )
 
                 // Meeting times (or "No meetings" for placeholder sections)
-                val inPersonMeeting = section.meetings.filterIsInstance<ClassMeeting.InPerson>().firstOrNull()
-                if (inPersonMeeting != null) {
+                val timedMeeting = section.meetings.firstNotNullOfOrNull { meeting ->
+                    when (meeting) {
+                        is ClassMeeting.InPerson -> meeting.classtime
+                        is ClassMeeting.OnlineSync -> meeting.classtime
+                        else -> null
+                    }
+                }
+                if (timedMeeting != null) {
                     Text(
-                        text = "${inPersonMeeting.classtime.days} ${inPersonMeeting.classtime.timeRange}",
+                        text = "${timedMeeting.days} ${timedMeeting.timeRange}",
                         style = MaterialTheme.typography.labelSmall,
                         color = JupiterpTheme.extendedColors.textSecondary
                     )

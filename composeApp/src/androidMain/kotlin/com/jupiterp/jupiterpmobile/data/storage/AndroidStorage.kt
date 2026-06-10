@@ -10,7 +10,7 @@ import kotlinx.serialization.json.Json
 /**
  * Android implementation using SharedPreferences
  */
-class AndroidLocalStorage(private val context: Context) : LocalStorage {
+class AndroidLocalStorage(private val context: Context) : MutexGuardedStorage() {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
