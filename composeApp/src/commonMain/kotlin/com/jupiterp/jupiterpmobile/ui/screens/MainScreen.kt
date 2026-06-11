@@ -62,6 +62,7 @@ fun MainScreen(
     viewModel: MainViewModel,
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
+    onOpenGenerator: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -217,6 +218,7 @@ fun MainScreen(
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
                     onSettingsClick = { showSettings = true },
+                    onGenerateClick = onOpenGenerator,
                     instructorSuggestions = instructorSuggestions
                 )
             } else {
@@ -234,6 +236,7 @@ fun MainScreen(
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
                     onSettingsClick = { showSettings = true },
+                    onGenerateClick = onOpenGenerator,
                     instructorSuggestions = instructorSuggestions
                 )
             }
@@ -259,6 +262,7 @@ private fun PhoneLayout(
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onSettingsClick: () -> Unit,
+    onGenerateClick: () -> Unit,
     instructorSuggestions: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
@@ -372,7 +376,8 @@ private fun PhoneLayout(
             CompactHeader(
                 selectedCount = currentSelections.size,
                 totalCredits = totalCredits,
-                onSettingsClick = onSettingsClick
+                onSettingsClick = onSettingsClick,
+                onGenerateClick = onGenerateClick
             )
 
             ScheduleContent(
@@ -565,6 +570,7 @@ private fun TabletLayout(
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onSettingsClick: () -> Unit,
+    onGenerateClick: () -> Unit,
     instructorSuggestions: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
@@ -579,7 +585,8 @@ private fun TabletLayout(
         CompactHeader(
             selectedCount = currentSelections.size,
             totalCredits = totalCredits,
-            onSettingsClick = onSettingsClick
+            onSettingsClick = onSettingsClick,
+            onGenerateClick = onGenerateClick
         )
 
         // Two-pane content
@@ -792,6 +799,7 @@ private fun CompactHeader(
     selectedCount: Int,
     totalCredits: IntRange,
     onSettingsClick: () -> Unit,
+    onGenerateClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(modifier = modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
@@ -842,6 +850,14 @@ private fun CompactHeader(
                             )
                         }
                     }
+                }
+
+                IconButton(onClick = onGenerateClick, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        Icons.Outlined.AutoAwesome,
+                        "Generate schedules",
+                        tint = JupiterpTheme.extendedColors.orange
+                    )
                 }
 
                 IconButton(onClick = onSettingsClick, modifier = Modifier.size(40.dp)) {

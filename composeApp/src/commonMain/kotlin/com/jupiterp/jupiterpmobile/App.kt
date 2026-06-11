@@ -10,6 +10,8 @@ import com.jupiterp.jupiterpmobile.data.repository.PreferencesRepository
 import com.jupiterp.jupiterpmobile.di.allModules
 import com.jupiterp.jupiterpmobile.ui.screens.MainScreen
 import com.jupiterp.jupiterpmobile.ui.screens.MainViewModel
+import com.jupiterp.jupiterpmobile.ui.screens.generator.GeneratorScreen
+import com.jupiterp.jupiterpmobile.ui.screens.generator.GeneratorViewModel
 import com.jupiterp.ui.theme.JupiterpTheme
 import org.koin.compose.KoinApplication
 import org.koin.compose.getKoin
@@ -37,17 +39,29 @@ fun App() {
             Surface(
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Resolve through the ViewModelStore so the instance survives
+                // Resolve through the ViewModelStore so the instances survive
                 // configuration changes and onCleared() actually runs.
                 val koin = getKoin()
-                val viewModel: MainViewModel = viewModel { koin.get<MainViewModel>() }
-                MainScreen(
-                    viewModel = viewModel,
-                    isDarkMode = isDarkMode,
-                    onToggleDarkMode = {
-                        preferencesRepository.setDarkMode(!isDarkMode)
-                    }
-                )
+                var showGenerator by remember { mutableStateOf(false) }
+
+                if (showGenerator) {
+                    val generatorViewModel: GeneratorViewModel =
+                        viewModel { koin.get<GeneratorViewModel>() }
+                    GeneratorScreen(
+                        viewModel = generatorViewModel,
+                        onClose = { showGenerator = false }
+                    )
+                } else {
+                    val mainViewModel: MainViewModel = viewModel { koin.get<MainViewModel>() }
+                    MainScreen(
+                        viewModel = mainViewModel,
+                        isDarkMode = isDarkMode,
+                        onToggleDarkMode = {
+                            preferencesRepository.setDarkMode(!isDarkMode)
+                        },
+                        onOpenGenerator = { showGenerator = true }
+                    )
+                }
             }
         }
     }

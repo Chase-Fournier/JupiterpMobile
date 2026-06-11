@@ -12,8 +12,8 @@ import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -29,10 +29,10 @@ class ScheduleRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _currentSelections = MutableStateFlow<List<ScheduleSelection>>(emptyList())
-    val currentSelections: Flow<List<ScheduleSelection>> = _currentSelections.asStateFlow()
+    val currentSelections: StateFlow<List<ScheduleSelection>> = _currentSelections.asStateFlow()
 
     private val _savedSchedules = MutableStateFlow<List<StoredSchedule>>(emptyList())
-    val savedSchedules: Flow<List<StoredSchedule>> = _savedSchedules.asStateFlow()
+    val savedSchedules: StateFlow<List<StoredSchedule>> = _savedSchedules.asStateFlow()
 
     private var colorCounter = 0
 
@@ -155,14 +155,27 @@ class ScheduleRepository(
     }
 
     /**
-     * Save current schedule with a name
+     * Replace the current schedule wholesale (e.g. applying a generated
+     * schedule). Color indices are reassigned sequentially.
      */
-    fun saveCurrentSchedule(name: String): StoredSchedule {
+    fun setCurrentSchedule(selections: List<ScheduleSelection>) {
+        userMutated = true
+        _currentSelections.value = selections.mapIndexed { i, selection ->
+            selection.copy(colorIndex = i)
+        }
+        colorCounter = selections.size
+        persistCurrentSchedule()
+    }
+
+    /**
+     * Save a schedule with a name
+     */
+    fun saveSchedule(name: String, selections: List<ScheduleSelection>): StoredSchedule {
         val now = Clock.System.now().toEpochMilliseconds()
         val schedule = StoredSchedule(
             id = generateId(),
             name = name,
-            selections = _currentSelections.value,
+            selections = selections,
             createdAt = now,
             updatedAt = now
         )
@@ -172,6 +185,12 @@ class ScheduleRepository(
         persistSavedSchedules()
         return schedule
     }
+
+    /**
+     * Save current schedule with a name
+     */
+    fun saveCurrentSchedule(name: String): StoredSchedule =
+        saveSchedule(name, _currentSelections.value)
 
     /**
      * Load a saved schedule as current

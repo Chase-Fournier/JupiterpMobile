@@ -156,6 +156,30 @@ class CourseRepository(
     }
 
     /**
+     * Best-effort bulk rating lookup keyed by instructor name. Requests are
+     * chunked to keep the name-list query parameter a sane length; failed
+     * chunks are skipped rather than failing the whole lookup, since ratings
+     * are optional metadata.
+     */
+    suspend fun getInstructorRatings(names: List<String>): Map<String, Float> = coroutineScope {
+        names
+            .filter { it.isNotBlank() && !it.contains("TBA", ignoreCase = true) }
+            .distinct()
+            .chunked(50)
+            .map { chunk ->
+                async {
+                    apiClient.getInstructors(
+                        InstructorSearchParams(instructorNames = chunk, limit = chunk.size)
+                    ).getOrNull().orEmpty()
+                }
+            }
+            .awaitAll()
+            .flatten()
+            .mapNotNull { response -> response.averageRating?.let { response.name to it } }
+            .toMap()
+    }
+
+    /**
      * Get instructor by exact name
      */
     suspend fun getInstructorByName(name: String): Result<Instructor?> {
