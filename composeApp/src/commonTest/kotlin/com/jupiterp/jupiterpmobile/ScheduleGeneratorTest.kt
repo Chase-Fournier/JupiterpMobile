@@ -239,6 +239,36 @@ class ScheduleGeneratorTest {
     }
 
     @Test
+    fun gapCountsBreaksWithinAndAcrossCourses() {
+        // One section with a morning and afternoon meeting on Monday (3h gap),
+        // plus a second course filling part of that gap on Monday only.
+        val courseA = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(
+                inPerson("M", 9f, 10f),
+                inPerson("M", 13f, 14f)
+            ))
+        ))
+        val courseB = course("BBBB100", listOf(
+            section("BBBB100", "0101", listOf(inPerson("M", 11f, 12f)))
+        ))
+
+        val result = ScheduleGenerator.generate(listOf(courseA, courseB), HardConstraints())
+
+        assertEquals(1, result.schedules.size)
+        // Monday timeline: 9-10, 11-12, 13-14 -> gaps 10:00-11:00 (60) + 12:00-13:00 (60)
+        assertEquals(120, result.schedules[0].metrics.totalGapMinutes)
+    }
+
+    @Test
+    fun singleMeetingDayHasNoGap() {
+        val courseA = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("MWF", 9f, 10f)))
+        ))
+        val result = ScheduleGenerator.generate(listOf(courseA), HardConstraints())
+        assertEquals(0, result.schedules[0].metrics.totalGapMinutes)
+    }
+
+    @Test
     fun untimedScheduleHasNullTimeMetrics() {
         val courseA = course("AAAA100", listOf(
             section("AAAA100", "0101", listOf(ClassMeeting.OnlineAsync))

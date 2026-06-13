@@ -50,7 +50,9 @@ class GeneratorViewModel(
         data object Loading : GenerationState
         data class Done(
             val schedules: List<GeneratedSchedule>,
-            val truncated: Boolean
+            val truncated: Boolean,
+            /** Per-instructor average ratings, keyed by name, for detail display. */
+            val instructorRatings: Map<String, Float>
         ) : GenerationState
 
         data class NoSchedules(
@@ -219,7 +221,8 @@ class GeneratorViewModel(
             }
 
             if (result.schedules.isNotEmpty()) {
-                _generationState.value = GenerationState.Done(result.schedules, result.truncated)
+                _generationState.value =
+                    GenerationState.Done(result.schedules, result.truncated, ratings)
                 return@launch
             }
 

@@ -34,8 +34,10 @@ import com.jupiterp.ui.theme.JupiterpTheme
 fun WeeklyScheduleView(
     scheduleBlocks: List<ScheduleBlock>,
     onBlockClick: (ScheduleBlock) -> Unit,
-    onRemoveBlock: (ScheduleBlock) -> Unit,
     modifier: Modifier = Modifier,
+    // Null in read-only contexts (e.g. previewing a generated schedule), which
+    // hides the Remove action in the block info dialog.
+    onRemoveBlock: ((ScheduleBlock) -> Unit)? = null,
     startHour: Int = 8,
     endHour: Int = 22
 ) {
@@ -155,7 +157,7 @@ fun WeeklyScheduleView(
                                 totalLanes = totalLanes,
                                 columnWidth = columnWidth,
                                 onClick = { onBlockClick(block) },
-                                onRemove = { onRemoveBlock(block) }
+                                onRemove = onRemoveBlock?.let { remove -> { remove(block) } }
                             )
                         }
                     }
@@ -246,7 +248,7 @@ private fun ScheduleBlockView(
     startHour: Int,
     hourHeight: Dp,
     onClick: () -> Unit,
-    onRemove: () -> Unit,
+    onRemove: (() -> Unit)?,
     modifier: Modifier = Modifier,
     laneIndex: Int = 0,
     totalLanes: Int = 1,
@@ -324,9 +326,11 @@ private fun ScheduleBlockView(
         ScheduleBlockInfoDialog(
             block = block,
             onDismiss = { showInfoPopup = false },
-            onRemove = {
-                showInfoPopup = false
-                onRemove()
+            onRemove = onRemove?.let { remove ->
+                {
+                    showInfoPopup = false
+                    remove()
+                }
             }
         )
     }
@@ -339,7 +343,7 @@ private fun ScheduleBlockView(
 private fun ScheduleBlockInfoDialog(
     block: ScheduleBlock,
     onDismiss: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: (() -> Unit)?
 ) {
     val scheduleColors = JupiterpTheme.extendedColors.scheduleColors
     val accentColor = scheduleColors[block.colorIndex % scheduleColors.size]
@@ -422,15 +426,18 @@ private fun ScheduleBlockInfoDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onRemove) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Remove", color = MaterialTheme.colorScheme.error)
+            // Hidden in read-only contexts (onRemove == null)
+            if (onRemove != null) {
+                TextButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
             }
         },
         confirmButton = {

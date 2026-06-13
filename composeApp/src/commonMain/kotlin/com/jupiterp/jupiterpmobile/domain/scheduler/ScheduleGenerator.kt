@@ -134,10 +134,20 @@ object ScheduleGenerator {
         val slots = combo.flatMap { it.slots }
         val slotsByDay = slots.groupBy { it.day }
 
+        // Idle minutes between classes on each day, summed across the week.
+        // A section's separate meetings (e.g. lecture + lab) each contribute a
+        // slot, so a midday break within one course is counted too. We track a
+        // running max end rather than the previous slot's end so a fully nested
+        // meeting can't produce a negative or double-counted gap.
         val totalGapMinutes = slotsByDay.values.sumOf { daySlots ->
-            daySlots.sortedBy { it.start }
-                .zipWithNext()
-                .sumOf { (a, b) -> max(0, b.start - a.end) }
+            val sorted = daySlots.sortedBy { it.start }
+            var gap = 0
+            var coveredUntil = sorted.first().end
+            for (slot in sorted.drop(1)) {
+                if (slot.start > coveredUntil) gap += slot.start - coveredUntil
+                coveredUntil = max(coveredUntil, slot.end)
+            }
+            gap
         }
 
         // A section's rating is the mean of its rated instructors; unrated

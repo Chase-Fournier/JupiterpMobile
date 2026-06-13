@@ -1,6 +1,7 @@
 package com.jupiterp.jupiterpmobile.ui.screens.generator
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,12 +9,13 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.School
@@ -36,9 +38,11 @@ import com.jupiterp.jupiterpmobile.domain.scheduler.HardConstraints
 import com.jupiterp.jupiterpmobile.domain.scheduler.RelaxationKind
 import com.jupiterp.jupiterpmobile.domain.scheduler.SortCriterion
 import com.jupiterp.jupiterpmobile.domain.scheduler.sortedByCriterion
-import com.jupiterp.jupiterpmobile.toOneDecimalString
 import com.jupiterp.jupiterpmobile.ui.components.FilterChip
+import com.jupiterp.jupiterpmobile.ui.components.MeetingInfo
+import com.jupiterp.jupiterpmobile.ui.components.RatingChip
 import com.jupiterp.jupiterpmobile.ui.components.SolarSystemLoader
+import com.jupiterp.jupiterpmobile.ui.components.WeeklyScheduleView
 import com.jupiterp.ui.theme.JupiterpTheme
 import kotlin.math.roundToInt
 
@@ -60,7 +64,19 @@ fun GeneratorScreen(
     val sortCriterion by viewModel.sortCriterion.collectAsState()
     val currentScheduleSize by viewModel.currentScheduleSize.collectAsState()
 
-    val showingResults = state is GeneratorViewModel.GenerationState.Done
+    // The schedule whose full detail is being viewed; only meaningful while
+    // results are showing.
+    var detailSchedule by remember { mutableStateOf<GeneratedSchedule?>(null) }
+    val doneState = state as? GeneratorViewModel.GenerationState.Done
+    // Drop a stale detail selection if generation is rerun
+    LaunchedEffect(doneState) { if (doneState == null) detailSchedule = null }
+    val viewingDetail = doneState != null && detailSchedule != null
+
+    val title = when {
+        viewingDetail -> "Schedule Details"
+        doneState != null -> "Generated Schedules"
+        else -> "Schedule Generator"
+    }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
@@ -72,16 +88,18 @@ fun GeneratorScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = {
-                    when (state) {
-                        is GeneratorViewModel.GenerationState.Done,
-                        is GeneratorViewModel.GenerationState.Loading -> viewModel.backToRequirements()
+                    when {
+                        viewingDetail -> detailSchedule = null
+                        state is GeneratorViewModel.GenerationState.Done ||
+                            state is GeneratorViewModel.GenerationState.Loading ->
+                            viewModel.backToRequirements()
                         else -> onClose()
                     }
                 }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                 }
                 Text(
-                    text = if (showingResults) "Generated Schedules" else "Schedule Generator",
+                    text = title,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -95,18 +113,36 @@ fun GeneratorScreen(
                 }
 
                 is GeneratorViewModel.GenerationState.Done -> {
-                    ResultsContent(
-                        schedules = s.schedules,
-                        truncated = s.truncated,
-                        sortCriterion = sortCriterion,
-                        onSortChange = viewModel::setSortCriterion,
-                        currentScheduleSize = currentScheduleSize,
-                        onApply = { schedule ->
-                            viewModel.applySchedule(schedule)
-                            onClose()
-                        },
-                        onSave = viewModel::saveSchedule
-                    )
+                    val detail = detailSchedule
+                    if (detail != null) {
+                        ScheduleDetailView(
+                            schedule = detail,
+                            rank = remember(s.schedules, sortCriterion, detail) {
+                                s.schedules.sortedByCriterion(sortCriterion).indexOf(detail) + 1
+                            },
+                            instructorRatings = s.instructorRatings,
+                            currentScheduleSize = currentScheduleSize,
+                            onApply = {
+                                viewModel.applySchedule(detail)
+                                onClose()
+                            },
+                            onSave = { name -> viewModel.saveSchedule(detail, name) }
+                        )
+                    } else {
+                        ResultsContent(
+                            schedules = s.schedules,
+                            truncated = s.truncated,
+                            sortCriterion = sortCriterion,
+                            onSortChange = viewModel::setSortCriterion,
+                            currentScheduleSize = currentScheduleSize,
+                            onOpenDetail = { detailSchedule = it },
+                            onApply = { schedule ->
+                                viewModel.applySchedule(schedule)
+                                onClose()
+                            },
+                            onSave = viewModel::saveSchedule
+                        )
+                    }
                 }
 
                 else -> {
@@ -328,8 +364,6 @@ private fun RequirementsContent(
                     containerColor = JupiterpTheme.extendedColors.orange
                 )
             ) {
-                Icon(Icons.Outlined.AutoAwesome, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
                 Text(
                     "Generate schedules",
                     style = MaterialTheme.typography.titleSmall,
@@ -571,7 +605,7 @@ private fun hintLabel(
 }
 
 // ---------------------------------------------------------------------------
-// Results page
+// Results list
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -581,6 +615,7 @@ private fun ResultsContent(
     sortCriterion: SortCriterion,
     onSortChange: (SortCriterion) -> Unit,
     currentScheduleSize: Int,
+    onOpenDetail: (GeneratedSchedule) -> Unit,
     onApply: (GeneratedSchedule) -> Unit,
     onSave: (GeneratedSchedule, String) -> Unit
 ) {
@@ -590,60 +625,16 @@ private fun ResultsContent(
     var saveTarget by remember { mutableStateOf<GeneratedSchedule?>(null) }
 
     confirmApply?.let { schedule ->
-        AlertDialog(
-            onDismissRequest = { confirmApply = null },
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Replace current schedule?", fontWeight = FontWeight.Bold) },
-            text = {
-                Text("Applying this will replace the $currentScheduleSize courses currently in your planner.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmApply = null
-                    onApply(schedule)
-                }) {
-                    Text("Apply", color = JupiterpTheme.extendedColors.orange)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmApply = null }) { Text("Cancel") }
-            }
+        ApplyConfirmDialog(
+            currentScheduleSize = currentScheduleSize,
+            onConfirm = { confirmApply = null; onApply(schedule) },
+            onDismiss = { confirmApply = null }
         )
     }
-
     saveTarget?.let { schedule ->
-        var name by remember(schedule) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { saveTarget = null },
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("Save Schedule", fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    placeholder = { Text("e.g., Fall Plan A") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = JupiterpTheme.extendedColors.orange,
-                        cursorColor = JupiterpTheme.extendedColors.orange
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onSave(schedule, name.trim())
-                        saveTarget = null
-                    },
-                    enabled = name.isNotBlank()
-                ) {
-                    Text("Save", color = JupiterpTheme.extendedColors.orange)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { saveTarget = null }) { Text("Cancel") }
-            }
+        SaveScheduleDialog(
+            onSave = { name -> onSave(schedule, name); saveTarget = null },
+            onDismiss = { saveTarget = null }
         )
     }
 
@@ -679,6 +670,7 @@ private fun ResultsContent(
                 ScheduleResultCard(
                     rank = index + 1,
                     schedule = schedule,
+                    onClick = { onOpenDetail(schedule) },
                     onApply = {
                         if (currentScheduleSize > 0) confirmApply = schedule
                         else onApply(schedule)
@@ -694,6 +686,7 @@ private fun ResultsContent(
 private fun ScheduleResultCard(
     rank: Int,
     schedule: GeneratedSchedule,
+    onClick: () -> Unit,
     onApply: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -701,66 +694,65 @@ private fun ScheduleResultCard(
     val blocks = remember(schedule) { ScheduleRepository.getScheduleBlocks(schedule.selections) }
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Rank + metric badges
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    "#$rank",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = JupiterpTheme.extendedColors.orange
+            // Header: rank, featured rating, "details" affordance
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RankBadge(rank)
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    RatingChip(rating = metrics.avgInstructorRating)
+                    if (metrics.avgInstructorRating == null) {
+                        Text(
+                            "No ratings yet",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = JupiterpTheme.extendedColors.textSecondary
+                        )
+                    } else {
+                        Text(
+                            "${metrics.ratedSectionCount} of ${metrics.sectionCount} rated",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = JupiterpTheme.extendedColors.textSecondary
+                        )
+                    }
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "View details",
+                    tint = JupiterpTheme.extendedColors.textSecondary
                 )
-                MetricBadge(ratingText(metrics))
-                MetricBadge(creditsText(metrics))
-                MetricBadge("${metrics.daysWithClasses} day${if (metrics.daysWithClasses != 1) "s" else ""}")
-                MetricBadge(gapText(metrics.totalGapMinutes))
             }
 
-            if (blocks.isNotEmpty()) {
-                MiniSchedulePreview(
-                    blocks = blocks,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(96.dp)
-                )
-            }
-
-            // Section lines
-            schedule.selections.forEach { selection ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        selection.course.courseCode,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        selection.section.sectionCode,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = JupiterpTheme.extendedColors.sectionCodes
-                    )
-                    Text(
-                        selection.section.instructorsDisplay,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = JupiterpTheme.extendedColors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            // Layout the preview alongside the key numbers
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (blocks.isNotEmpty()) {
+                    MiniSchedulePreview(
+                        blocks = blocks,
+                        modifier = Modifier.width(120.dp).height(108.dp)
                     )
                 }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    MetricBadge(creditsText(metrics))
+                    MetricBadge("${metrics.daysWithClasses} day${if (metrics.daysWithClasses != 1) "s" else ""} on campus")
+                    MetricBadge(gapText(metrics.totalGapMinutes))
+                    MetricBadge(classWindowText(metrics))
+                }
             }
+
+            // Course chips
+            FlowChips(
+                schedule.selections.map { "${it.course.courseCode} ${it.section.sectionCode}" }
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -786,6 +778,291 @@ private fun ScheduleResultCard(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Detail view
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ScheduleDetailView(
+    schedule: GeneratedSchedule,
+    rank: Int,
+    instructorRatings: Map<String, Float>,
+    currentScheduleSize: Int,
+    onApply: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    val metrics = schedule.metrics
+    val blocks = remember(schedule) { ScheduleRepository.getScheduleBlocks(schedule.selections) }
+
+    var confirmApply by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+
+    if (confirmApply) {
+        ApplyConfirmDialog(
+            currentScheduleSize = currentScheduleSize,
+            onConfirm = { confirmApply = false; onApply() },
+            onDismiss = { confirmApply = false }
+        )
+    }
+    if (saving) {
+        SaveScheduleDialog(
+            onSave = { name -> onSave(name); saving = false },
+            onDismiss = { saving = false }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Full week grid (read-only — tapping a block still shows its info)
+        if (blocks.isNotEmpty()) {
+            WeeklyScheduleView(
+                scheduleBlocks = blocks,
+                onBlockClick = { },
+                modifier = Modifier.fillMaxWidth().height(320.dp)
+            )
+            HorizontalDivider(color = JupiterpTheme.extendedColors.divider)
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RankBadge(rank)
+                    Spacer(Modifier.width(10.dp))
+                    RatingChip(rating = metrics.avgInstructorRating)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (metrics.avgInstructorRating == null) "No instructor ratings"
+                        else "avg • ${metrics.ratedSectionCount}/${metrics.sectionCount} sections rated",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                }
+            }
+
+            item { MetricsGrid(metrics) }
+
+            item {
+                Text(
+                    "Courses",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            items(schedule.selections) { selection ->
+                CourseDetailCard(selection = selection, instructorRatings = instructorRatings)
+            }
+        }
+
+        // Action bar
+        Surface(tonalElevation = 3.dp) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .navigationBarsPadding(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { saving = true },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Save")
+                }
+                Button(
+                    onClick = { if (currentScheduleSize > 0) confirmApply = true else onApply() },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = JupiterpTheme.extendedColors.orange
+                    )
+                ) {
+                    Text("Apply to planner", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseDetailCard(
+    selection: com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection,
+    instructorRatings: Map<String, Float>
+) {
+    val palette = JupiterpTheme.extendedColors.scheduleColors
+    val accent = palette[selection.colorIndex % palette.size]
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
+    ) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            // Color spine matching the grid block
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .fillMaxHeight()
+                    .background(accent)
+            )
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        selection.course.courseCode,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = JupiterpTheme.extendedColors.orange
+                    )
+                    Text(
+                        "Section ${selection.section.sectionCode}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = JupiterpTheme.extendedColors.sectionCodes
+                    )
+                    Text(
+                        "${selection.course.credits} cr",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                }
+                Text(
+                    selection.course.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+
+                // Per-instructor ratings
+                if (selection.section.instructors.isEmpty()) {
+                    Text(
+                        "Instructor: TBA",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                } else {
+                    selection.section.instructors.forEach { name ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            val rating = instructorRatings[name]
+                            if (rating != null) {
+                                RatingChip(rating = rating)
+                            } else {
+                                Text(
+                                    "unrated",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = JupiterpTheme.extendedColors.textSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Meetings
+                selection.section.meetings.forEach { meeting ->
+                    MeetingInfo(meeting = meeting)
+                }
+                if (selection.section.meetings.isEmpty()) {
+                    Text(
+                        "No scheduled meetings",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                }
+
+                // Seats
+                Text(
+                    "${selection.section.openSeats} of ${selection.section.totalSeats} seats open" +
+                        if (selection.section.waitlist > 0) " • ${selection.section.waitlist} waitlisted" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = JupiterpTheme.extendedColors.textSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricsGrid(metrics: com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics) {
+    val stats = buildList {
+        add("Credits" to creditsText(metrics))
+        add("Days on campus" to "${metrics.daysWithClasses}")
+        add("Total gaps" to gapText(metrics.totalGapMinutes))
+        metrics.earliestStartMinutes?.let { add("First class" to formatMinutes(it)) }
+        metrics.latestEndMinutes?.let { add("Last class" to formatMinutes(it)) }
+        add("Tightest seats" to "${metrics.minOpenSeats} open")
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            stats.chunked(2).forEach { row ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    row.forEach { (label, value) ->
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = JupiterpTheme.extendedColors.textSecondary
+                            )
+                            Text(
+                                value,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared pieces
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RankBadge(rank: Int) {
+    Surface(
+        shape = CircleShape,
+        color = JupiterpTheme.extendedColors.orangeContainer,
+        modifier = Modifier.size(32.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                "$rank",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = JupiterpTheme.extendedColors.orange
+            )
+        }
+    }
+}
+
 @Composable
 private fun MetricBadge(text: String) {
     Surface(
@@ -794,11 +1071,95 @@ private fun MetricBadge(text: String) {
     ) {
         Text(
             text,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+@Composable
+private fun FlowChips(labels: List<String>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        labels.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { label ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = JupiterpTheme.extendedColors.orangeContainer.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            label,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApplyConfirmDialog(
+    currentScheduleSize: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text("Replace current schedule?", fontWeight = FontWeight.Bold) },
+        text = {
+            Text("Applying this will replace the $currentScheduleSize course${if (currentScheduleSize != 1) "s" else ""} currently in your planner.")
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Apply", color = JupiterpTheme.extendedColors.orange)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun SaveScheduleDialog(
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text("Save Schedule", fontWeight = FontWeight.Bold) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text("e.g., Fall Plan A") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = JupiterpTheme.extendedColors.orange,
+                    cursorColor = JupiterpTheme.extendedColors.orange
+                )
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(name.trim()) },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Save", color = JupiterpTheme.extendedColors.orange)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 /**
@@ -860,14 +1221,16 @@ private fun formatMinutes(totalMinutes: Int): String {
     else "$displayHour:${m.toString().padStart(2, '0')} $period"
 }
 
-private fun ratingText(metrics: com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics): String =
-    metrics.avgInstructorRating
-        ?.let { "★ ${it.toOneDecimalString()} (${metrics.ratedSectionCount}/${metrics.sectionCount})" }
-        ?: "★ unrated"
-
 private fun creditsText(metrics: com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics): String =
     if (metrics.minCredits == metrics.maxCredits) "${metrics.minCredits} cr"
     else "${metrics.minCredits}–${metrics.maxCredits} cr"
+
+private fun classWindowText(metrics: com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics): String {
+    val start = metrics.earliestStartMinutes
+    val end = metrics.latestEndMinutes
+    return if (start == null || end == null) "No fixed times"
+    else "${formatMinutes(start)} – ${formatMinutes(end)}"
+}
 
 private fun gapText(gapMinutes: Int): String = when {
     gapMinutes == 0 -> "no gaps"
