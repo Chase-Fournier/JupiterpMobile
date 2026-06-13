@@ -260,9 +260,8 @@ class ScheduleGeneratorTest {
     }
 
     @Test
-    fun ignoresShortPassingPeriods() {
-        // 9:00-9:50 then 10:00-10:50 on Monday: only a 10-minute hop between,
-        // which is transition time and shouldn't count as a gap.
+    fun countsShortPassingPeriods() {
+        // 9:00-9:50 then 10:00-10:50 on Monday: the 10-minute hop between counts.
         val courseA = course("AAAA100", listOf(
             section("AAAA100", "0101", listOf(inPerson("M", 9f, 9f + 50f / 60f)))
         ))
@@ -271,7 +270,7 @@ class ScheduleGeneratorTest {
         ))
 
         val result = ScheduleGenerator.generate(listOf(courseA, courseB), HardConstraints())
-        assertEquals(0, result.schedules[0].metrics.totalGapMinutes)
+        assertEquals(10, result.schedules[0].metrics.totalGapMinutes)
     }
 
     @Test
