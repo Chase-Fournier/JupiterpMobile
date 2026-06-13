@@ -10,7 +10,7 @@ import platform.Foundation.NSUserDefaults
 /**
  * iOS implementation using NSUserDefaults
  */
-class IOSLocalStorage : LocalStorage {
+class IOSLocalStorage : MutexGuardedStorage() {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true

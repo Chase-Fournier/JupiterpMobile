@@ -15,6 +15,7 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import com.jupiterp.jupiterpmobile.addToCalendar
+import com.jupiterp.jupiterpmobile.hasKnownSemesterDates
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -66,6 +67,20 @@ class MainViewModel(
         .savedSchedules
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Derived schedule state, kept reactive so the UI doesn't have to call
+    // repository functions during composition
+    val scheduleBlocks: StateFlow<List<ScheduleBlock>> = currentSelections
+        .map { ScheduleRepository.getScheduleBlocks(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val otherItems: StateFlow<List<OtherScheduleItem>> = currentSelections
+        .map { ScheduleRepository.getOtherItems(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalCredits: StateFlow<IntRange> = currentSelections
+        .map { ScheduleRepository.getTotalCredits(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), IntRange(0, 0))
+
     // UI state
     private val _showSchedulePanel = MutableStateFlow(false)
     val showSchedulePanel: StateFlow<Boolean> = _showSchedulePanel.asStateFlow()
@@ -97,6 +112,12 @@ class MainViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var searchJob: Job? = null
+
+    // The in-flight network request. Cancelled on each new search so a slow
+    // older response can't overwrite newer results.
+    private var activeSearchJob: Job? = null
+
+    private var snackbarJob: Job? = null
 
     init {
         loadDepartments()
@@ -197,12 +218,14 @@ class MainViewModel(
         // Sticky filter (set by suggestion click) wins over inline @ syntax
         val instructorQuery = _selectedInstructor.value ?: inlineInstructor
 
+        activeSearchJob?.cancel()
+
         if (courseQuery.isEmpty() && department == null && genEds.isEmpty() && instructorQuery == null) {
             _coursesState.value = ApiState.Empty
             return
         }
 
-        viewModelScope.launch {
+        activeSearchJob = viewModelScope.launch {
             _coursesState.value = ApiState.Loading
 
             courseRepository.searchCourses(
@@ -288,14 +311,13 @@ class MainViewModel(
      * Add course without section (for courses with no sections available)
      */
     fun addCourseWithoutSection(course: Course) {
-        when (val result = scheduleRepository.addCourseWithoutSection(course)) {
-            is AddSectionResult.Success -> {
+        when (scheduleRepository.addCourseWithoutSection(course)) {
+            is AddSectionResult.Success,
+            // Placeholder sections have no meetings, so Conflict is unreachable here
+            is AddSectionResult.Conflict -> {
                 showSnackbar("Added ${course.courseCode}")
             }
             is AddSectionResult.AlreadyAdded -> {
-                showSnackbar("Course already in schedule")
-            }
-            is AddSectionResult.Conflict -> {
                 showSnackbar("Course already in schedule")
             }
         }
@@ -306,7 +328,7 @@ class MainViewModel(
      */
     fun removeSection(courseCode: String, sectionCode: String) {
         scheduleRepository.removeSection(courseCode, sectionCode)
-        showSnackbar("Removed section")
+        showSnackbar("Removed $courseCode")
     }
 
     /**
@@ -314,7 +336,7 @@ class MainViewModel(
      */
     fun removeCourse(courseCode: String) {
         scheduleRepository.removeCourse(courseCode)
-        showSnackbar("Removed course")
+        showSnackbar("Removed $courseCode")
     }
 
     /**
@@ -350,6 +372,14 @@ class MainViewModel(
     }
 
     /**
+     * Rename a saved schedule
+     */
+    fun renameSchedule(scheduleId: String, newName: String) {
+        scheduleRepository.renameSchedule(scheduleId, newName)
+        showSnackbar("Schedule renamed to \"$newName\"")
+    }
+
+    /**
      * Check if section is selected
      */
     fun isSectionSelected(courseCode: String, sectionCode: String): Boolean {
@@ -361,27 +391,6 @@ class MainViewModel(
      */
     fun hasConflict(courseCode: String, section: Section): Boolean {
         return scheduleRepository.hasConflict(courseCode, section)
-    }
-
-    /**
-     * Get schedule blocks for rendering
-     */
-    fun getScheduleBlocks(): List<ScheduleBlock> {
-        return scheduleRepository.getScheduleBlocks()
-    }
-
-    /**
-     * Get "Other" items (async, weekend, TBA classes)
-     */
-    fun getOtherItems(): List<OtherScheduleItem> {
-        return scheduleRepository.getOtherItems()
-    }
-
-    /**
-     * Get total credits range
-     */
-    fun getTotalCredits(): IntRange {
-        return scheduleRepository.getTotalCredits()
     }
 
     /**
@@ -421,6 +430,10 @@ class MainViewModel(
             showSnackbar("No courses in schedule to export")
             return
         }
+        if (!hasKnownSemesterDates()) {
+            showSnackbar("Semester dates unavailable — please update the app")
+            return
+        }
         addToCalendar(selections) { success ->
             if (success) showSnackbar("Schedule added to Calendar")
             else showSnackbar("Could not access Calendar — check permissions")
@@ -432,7 +445,9 @@ class MainViewModel(
      */
     private fun showSnackbar(message: String) {
         _snackbarMessage.value = message
-        viewModelScope.launch {
+        // Cancel the previous auto-dismiss so it can't clear this message early
+        snackbarJob?.cancel()
+        snackbarJob = viewModelScope.launch {
             delay(3000)
             _snackbarMessage.value = null
         }

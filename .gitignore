@@ -21,3 +21,5 @@ node_modules/
 *.keystore
 *.p12
 *.pfx
+composeApp/release/
+*.aab

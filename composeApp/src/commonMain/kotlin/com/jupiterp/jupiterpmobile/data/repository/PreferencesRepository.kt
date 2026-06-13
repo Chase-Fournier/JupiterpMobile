@@ -44,8 +44,7 @@ class PreferencesRepository(
         _isDarkMode.value = isDark
         scope.launch {
             try {
-                val currentData = storage.loadAppData()
-                storage.saveAppData(currentData.copy(isDarkMode = isDark))
+                storage.updateAppData { it.copy(isDarkMode = isDark) }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -59,8 +58,7 @@ class PreferencesRepository(
         _isDarkMode.value = null
         scope.launch {
             try {
-                val currentData = storage.loadAppData()
-                storage.saveAppData(currentData.copy(isDarkMode = null))
+                storage.updateAppData { it.copy(isDarkMode = null) }
             } catch (e: Exception) {
                 e.printStackTrace()
             }

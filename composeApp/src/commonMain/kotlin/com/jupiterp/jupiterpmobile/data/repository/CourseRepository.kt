@@ -11,8 +11,6 @@ import com.jupiterp.jupiterpmobile.domain.model.Instructor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 
 /**
  * Repository for course-related data operations
@@ -158,37 +156,35 @@ class CourseRepository(
     }
 
     /**
+     * Best-effort bulk rating lookup keyed by instructor name. Requests are
+     * chunked to keep the name-list query parameter a sane length; failed
+     * chunks are skipped rather than failing the whole lookup, since ratings
+     * are optional metadata.
+     */
+    suspend fun getInstructorRatings(names: List<String>): Map<String, Float> = coroutineScope {
+        names
+            .filter { it.isNotBlank() && !it.contains("TBA", ignoreCase = true) }
+            .distinct()
+            .chunked(50)
+            .map { chunk ->
+                async {
+                    apiClient.getInstructors(
+                        InstructorSearchParams(instructorNames = chunk, limit = chunk.size)
+                    ).getOrNull().orEmpty()
+                }
+            }
+            .awaitAll()
+            .flatten()
+            .mapNotNull { response -> response.averageRating?.let { response.name to it } }
+            .toMap()
+    }
+
+    /**
      * Get instructor by exact name
      */
     suspend fun getInstructorByName(name: String): Result<Instructor?> {
         return apiClient.getInstructorByName(name).map { response ->
             response?.toDomain()
         }
-    }
-
-    /**
-     * Get highly-rated instructors
-     */
-    suspend fun getTopRatedInstructors(minRating: Float = 4.0f, limit: Int = 50): Result<List<Instructor>> {
-        return apiClient.getActiveInstructors(
-            InstructorSearchParams(
-                ratings = listOf("gte.$minRating"),
-                limit = limit,
-                sortBy = "average_rating.desc"
-            )
-        ).map { instructors ->
-            instructors.map { it.toDomain() }
-        }
-    }
-
-    /**
-     * Flow-based search for reactive UI updates
-     */
-    fun searchCoursesFlow(
-        query: String? = null,
-        department: String? = null,
-        genEds: List<String>? = null
-    ): Flow<Result<List<Course>>> = flow {
-        emit(searchCourses(query, department, genEds))
     }
 }

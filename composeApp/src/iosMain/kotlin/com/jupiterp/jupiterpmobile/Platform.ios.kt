@@ -27,6 +27,7 @@ import platform.Foundation.NSDateComponents
 import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSOperationQueue
 import platform.UIKit.UIDevice
+import kotlin.math.roundToInt
 
 class IOSPlatform: Platform {
     override val name: String = UIDevice.currentDevice.systemName() + " " + UIDevice.currentDevice.systemVersion
@@ -40,6 +41,7 @@ actual fun currentDateInt(): Int {
 }
 
 actual fun addToCalendar(selections: List<ScheduleSelection>, onResult: (Boolean) -> Unit) {
+    val semester = activeSemester() ?: run { onResult(false); return }
     val store = EKEventStore()
     store.requestAccessToEntityType(EKEntityType.EKEntityTypeEvent) { granted, _ ->
         NSOperationQueue.mainQueue.addOperationWithBlock {
@@ -53,7 +55,6 @@ actual fun addToCalendar(selections: List<ScheduleSelection>, onResult: (Boolean
                 return@addOperationWithBlock
             }
 
-            val semester = activeSemester()
             val endDate = parseIcsEndDate(semester.endIcs)
             var success = true
 
@@ -136,8 +137,10 @@ private fun makeEventDate(firstMondayInt: Int, day: DayOfWeek, time: Float): NSD
     components.year = finalYear.toLong()
     components.month = finalMonth.toLong()
     components.day = finalDay.toLong()
-    components.hour = time.toInt().toLong()
-    components.minute = ((time - time.toInt()) * 60).toInt().toLong()
+    // Round to whole minutes to absorb float precision error in times like X:20
+    val totalMinutes = (time * 60).roundToInt()
+    components.hour = (totalMinutes / 60).toLong()
+    components.minute = (totalMinutes % 60).toLong()
     components.second = 0L
     return NSCalendar(NSCalendarIdentifierGregorian).dateFromComponents(components)!!
 }

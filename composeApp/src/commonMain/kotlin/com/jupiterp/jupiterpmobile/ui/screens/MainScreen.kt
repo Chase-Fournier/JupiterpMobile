@@ -62,6 +62,7 @@ fun MainScreen(
     viewModel: MainViewModel,
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
+    onOpenGenerator: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -82,6 +83,8 @@ fun MainScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showCoursesExpanded by remember { mutableStateOf(false) }
+    var showLoadConfirm by remember { mutableStateOf<String?>(null) }
+    var showRenameDialog by remember { mutableStateOf<String?>(null) }
 
     val departments = (departmentsState as? ApiState.Success)?.data ?: emptyList()
 
@@ -104,6 +107,48 @@ fun MainScreen(
         )
     }
 
+    // Confirm before a load replaces a non-empty current schedule
+    showLoadConfirm?.let { scheduleId ->
+        val schedule = savedSchedules.find { it.id == scheduleId }
+        AlertDialog(
+            onDismissRequest = { showLoadConfirm = null },
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("Load Schedule?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("Loading \"${schedule?.name}\" will replace your current schedule. Save it first if you want to keep it.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.loadSchedule(scheduleId)
+                        showLoadConfirm = null
+                        showSettings = false
+                    }
+                ) {
+                    Text("Load", color = JupiterpTheme.extendedColors.orange)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLoadConfirm = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Rename schedule dialog
+    showRenameDialog?.let { scheduleId ->
+        val schedule = savedSchedules.find { it.id == scheduleId }
+        RenameScheduleDialog(
+            currentName = schedule?.name ?: "",
+            onDismiss = { showRenameDialog = null },
+            onRename = { newName ->
+                viewModel.renameSchedule(scheduleId, newName)
+                showRenameDialog = null
+            }
+        )
+    }
+
     // Settings sheet
     if (showSettings) {
         SettingsBottomSheet(
@@ -116,11 +161,18 @@ fun MainScreen(
                 showSaveDialog = true
             },
             onLoadSchedule = { scheduleId ->
-                viewModel.loadSchedule(scheduleId)
-                showSettings = false
+                if (currentSelections.isNotEmpty()) {
+                    showLoadConfirm = scheduleId
+                } else {
+                    viewModel.loadSchedule(scheduleId)
+                    showSettings = false
+                }
             },
             onDeleteSchedule = { scheduleId ->
                 viewModel.deleteSchedule(scheduleId)
+            },
+            onRenameSchedule = { scheduleId ->
+                showRenameDialog = scheduleId
             },
             onDismiss = { showSettings = false },
             onClearSchedule = {
@@ -166,6 +218,7 @@ fun MainScreen(
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
                     onSettingsClick = { showSettings = true },
+                    onGenerateClick = onOpenGenerator,
                     instructorSuggestions = instructorSuggestions
                 )
             } else {
@@ -183,6 +236,7 @@ fun MainScreen(
                     showCoursesExpanded = showCoursesExpanded,
                     onToggleCoursesExpanded = { showCoursesExpanded = !showCoursesExpanded },
                     onSettingsClick = { showSettings = true },
+                    onGenerateClick = onOpenGenerator,
                     instructorSuggestions = instructorSuggestions
                 )
             }
@@ -208,12 +262,17 @@ private fun PhoneLayout(
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onSettingsClick: () -> Unit,
+    onGenerateClick: () -> Unit,
     instructorSuggestions: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
+
+    val scheduleBlocks by viewModel.scheduleBlocks.collectAsState()
+    val otherItems by viewModel.otherItems.collectAsState()
+    val totalCredits by viewModel.totalCredits.collectAsState()
 
     // Sheet dimensions
     val collapsedHeightDp = 110.dp
@@ -316,14 +375,15 @@ private fun PhoneLayout(
         ) {
             CompactHeader(
                 selectedCount = currentSelections.size,
-                totalCredits = viewModel.getTotalCredits(),
-                onSettingsClick = onSettingsClick
+                totalCredits = totalCredits,
+                onSettingsClick = onSettingsClick,
+                onGenerateClick = onGenerateClick
             )
 
             ScheduleContent(
                 selections = currentSelections,
-                scheduleBlocks = viewModel.getScheduleBlocks(),
-                otherItems = viewModel.getOtherItems(),
+                scheduleBlocks = scheduleBlocks,
+                otherItems = otherItems,
                 showCoursesExpanded = showCoursesExpanded,
                 onToggleCoursesExpanded = onToggleCoursesExpanded,
                 onRemoveSection = { code, section -> viewModel.removeSection(code, section) },
@@ -446,7 +506,8 @@ private fun PhoneLayout(
                                     onAddCourseWithoutSection = { course ->
                                         viewModel.addCourseWithoutSection(course)
                                     },
-                                    hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
+                                    hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null ||
+                                            selectedGenEds.isNotEmpty() || selectedInstructor != null,
                                     modifier = Modifier.fillMaxSize(),
                                     hasConflict = remember(currentSelections) {
                                         { code, section -> viewModel.hasConflict(code, section) }
@@ -509,17 +570,23 @@ private fun TabletLayout(
     showCoursesExpanded: Boolean,
     onToggleCoursesExpanded: () -> Unit,
     onSettingsClick: () -> Unit,
+    onGenerateClick: () -> Unit,
     instructorSuggestions: List<String> = emptyList(),
     modifier: Modifier = Modifier
 ) {
+    val scheduleBlocks by viewModel.scheduleBlocks.collectAsState()
+    val otherItems by viewModel.otherItems.collectAsState()
+    val totalCredits by viewModel.totalCredits.collectAsState()
+
     Column(
         modifier = modifier.fillMaxSize()
     ) {
         // Full-width header
         CompactHeader(
             selectedCount = currentSelections.size,
-            totalCredits = viewModel.getTotalCredits(),
-            onSettingsClick = onSettingsClick
+            totalCredits = totalCredits,
+            onSettingsClick = onSettingsClick,
+            onGenerateClick = onGenerateClick
         )
 
         // Two-pane content
@@ -527,8 +594,8 @@ private fun TabletLayout(
             // LEFT PANE: Schedule
             ScheduleContent(
                 selections = currentSelections,
-                scheduleBlocks = viewModel.getScheduleBlocks(),
-                otherItems = viewModel.getOtherItems(),
+                scheduleBlocks = scheduleBlocks,
+                otherItems = otherItems,
                 showCoursesExpanded = showCoursesExpanded,
                 onToggleCoursesExpanded = onToggleCoursesExpanded,
                 onRemoveSection = { code, section -> viewModel.removeSection(code, section) },
@@ -598,7 +665,8 @@ private fun TabletLayout(
                         onAddCourseWithoutSection = { course ->
                             viewModel.addCourseWithoutSection(course)
                         },
-                        hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null || selectedGenEds.isNotEmpty(),
+                        hasActiveSearch = searchQuery.isNotEmpty() || selectedDepartment != null ||
+                                selectedGenEds.isNotEmpty() || selectedInstructor != null,
                         modifier = Modifier.fillMaxSize(),
                         hasConflict = remember(currentSelections) {
                             { code, section -> viewModel.hasConflict(code, section) }
@@ -731,6 +799,7 @@ private fun CompactHeader(
     selectedCount: Int,
     totalCredits: IntRange,
     onSettingsClick: () -> Unit,
+    onGenerateClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(modifier = modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
@@ -781,6 +850,14 @@ private fun CompactHeader(
                             )
                         }
                     }
+                }
+
+                IconButton(onClick = onGenerateClick, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        Icons.Outlined.AutoAwesome,
+                        "Generate schedules",
+                        tint = JupiterpTheme.extendedColors.orange
+                    )
                 }
 
                 IconButton(onClick = onSettingsClick, modifier = Modifier.size(40.dp)) {
@@ -978,6 +1055,63 @@ private fun SaveScheduleDialog(
 }
 
 /**
+ * Rename schedule dialog
+ */
+@Composable
+private fun RenameScheduleDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit
+) {
+    var scheduleName by remember { mutableStateOf(currentName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text("Rename Schedule", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column {
+                Text(
+                    "Enter a new name for this schedule:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = JupiterpTheme.extendedColors.textSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = scheduleName,
+                    onValueChange = { scheduleName = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = JupiterpTheme.extendedColors.orange,
+                        cursorColor = JupiterpTheme.extendedColors.orange
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (scheduleName.isNotBlank()) {
+                        onRename(scheduleName.trim())
+                    }
+                },
+                enabled = scheduleName.isNotBlank()
+            ) {
+                Text("Rename", color = JupiterpTheme.extendedColors.orange)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
  * Settings bottom sheet with schedule management
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -990,6 +1124,7 @@ private fun SettingsBottomSheet(
     onSaveSchedule: () -> Unit,
     onLoadSchedule: (String) -> Unit,
     onDeleteSchedule: (String) -> Unit,
+    onRenameSchedule: (String) -> Unit,
     onDismiss: () -> Unit,
     onClearSchedule: () -> Unit,
     onExportCalendar: () -> Unit = {}
@@ -1226,6 +1361,17 @@ private fun SettingsBottomSheet(
                                             color = JupiterpTheme.extendedColors.textSecondary
                                         )
                                     }
+                                }
+                                IconButton(
+                                    onClick = { onRenameSchedule(schedule.id) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Edit,
+                                        "Rename",
+                                        tint = JupiterpTheme.extendedColors.textSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
                                 IconButton(
                                     onClick = { showDeleteConfirm = schedule.id },

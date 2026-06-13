@@ -7,6 +7,7 @@ import com.jupiterp.jupiterpmobile.data.repository.PreferencesRepository
 import com.jupiterp.jupiterpmobile.data.storage.LocalStorage
 import com.jupiterp.jupiterpmobile.data.storage.createPlatformStorage
 import com.jupiterp.jupiterpmobile.ui.screens.MainViewModel
+import com.jupiterp.jupiterpmobile.ui.screens.generator.GeneratorViewModel
 import org.koin.dsl.module
 
 /**
@@ -26,6 +27,7 @@ val appModule = module {
 
     // ViewModels
     factory { MainViewModel(get(), get()) }
+    factory { GeneratorViewModel(get(), get()) }
 }
 
 /**

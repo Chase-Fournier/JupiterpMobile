@@ -34,8 +34,10 @@ import com.jupiterp.ui.theme.JupiterpTheme
 fun WeeklyScheduleView(
     scheduleBlocks: List<ScheduleBlock>,
     onBlockClick: (ScheduleBlock) -> Unit,
-    onRemoveBlock: (ScheduleBlock) -> Unit,
     modifier: Modifier = Modifier,
+    // Null in read-only contexts (e.g. previewing a generated schedule), which
+    // hides the Remove action in the block info dialog.
+    onRemoveBlock: ((ScheduleBlock) -> Unit)? = null,
     startHour: Int = 8,
     endHour: Int = 22
 ) {
@@ -155,7 +157,7 @@ fun WeeklyScheduleView(
                                 totalLanes = totalLanes,
                                 columnWidth = columnWidth,
                                 onClick = { onBlockClick(block) },
-                                onRemove = { onRemoveBlock(block) }
+                                onRemove = onRemoveBlock?.let { remove -> { remove(block) } }
                             )
                         }
                     }
@@ -167,29 +169,49 @@ fun WeeklyScheduleView(
 
 private data class LanedBlock(val block: ScheduleBlock, val lane: Int, val totalLanes: Int)
 
+/**
+ * Assigns lanes per cluster of transitively-overlapping blocks. Every block
+ * in a cluster shares the same totalLanes (the number of lanes the cluster
+ * actually needs), so widths and offsets always line up; blocks that overlap
+ * nothing get full width.
+ */
 private fun assignLanes(blocks: List<ScheduleBlock>): List<LanedBlock> {
     if (blocks.isEmpty()) return emptyList()
-    val sorted = blocks.sortedBy { it.startTime }
-    val laneEndTimes = mutableListOf<Float>()
-    val laneAssignment = mutableMapOf<ScheduleBlock, Int>()
+    val sorted = blocks.sortedWith(compareBy({ it.startTime }, { it.endTime }))
+    val result = mutableListOf<LanedBlock>()
+
+    val cluster = mutableListOf<ScheduleBlock>()
+    var clusterEnd = Float.NEGATIVE_INFINITY
+
+    fun flushCluster() {
+        if (cluster.isEmpty()) return
+        val laneEndTimes = mutableListOf<Float>()
+        val lanes = cluster.map { block ->
+            val lane = laneEndTimes.indexOfFirst { it <= block.startTime }
+            if (lane == -1) {
+                laneEndTimes.add(block.endTime)
+                laneEndTimes.lastIndex
+            } else {
+                laneEndTimes[lane] = block.endTime
+                lane
+            }
+        }
+        cluster.forEachIndexed { i, block ->
+            result.add(LanedBlock(block, lanes[i], laneEndTimes.size))
+        }
+        cluster.clear()
+    }
+
     for (block in sorted) {
-        val lane = laneEndTimes.indexOfFirst { it <= block.startTime }
-        if (lane == -1) {
-            laneEndTimes.add(block.endTime)
-            laneAssignment[block] = laneEndTimes.lastIndex
-        } else {
-            laneEndTimes[lane] = block.endTime
-            laneAssignment[block] = lane
+        if (cluster.isNotEmpty() && block.startTime >= clusterEnd) {
+            flushCluster()
+            clusterEnd = Float.NEGATIVE_INFINITY
         }
+        cluster.add(block)
+        clusterEnd = maxOf(clusterEnd, block.endTime)
     }
-    // Each block's totalLanes = how many blocks actually overlap with it specifically,
-    // so a lone block far from any conflict gets full width.
-    return blocks.map { block ->
-        val localTotal = blocks.count { other ->
-            other.startTime < block.endTime && other.endTime > block.startTime
-        }
-        LanedBlock(block, laneAssignment[block]!!, localTotal)
-    }
+    flushCluster()
+    return result
 }
 
 /**
@@ -226,7 +248,7 @@ private fun ScheduleBlockView(
     startHour: Int,
     hourHeight: Dp,
     onClick: () -> Unit,
-    onRemove: () -> Unit,
+    onRemove: (() -> Unit)?,
     modifier: Modifier = Modifier,
     laneIndex: Int = 0,
     totalLanes: Int = 1,
@@ -287,10 +309,10 @@ private fun ScheduleBlockView(
                 overflow = TextOverflow.Clip
             )
 
-            // Location (if space permits)
+            // Location (if space permits); online-sync blocks have no location
             if (block.duration >= 1.1f) {
                 Text(
-                    text = block.meeting.location.display,
+                    text = block.location?.display ?: "Online",
                     style = MaterialTheme.typography.labelSmall,
                     color = textColor.copy(alpha = 0.7f),
                     overflow = TextOverflow.Clip
@@ -304,9 +326,11 @@ private fun ScheduleBlockView(
         ScheduleBlockInfoDialog(
             block = block,
             onDismiss = { showInfoPopup = false },
-            onRemove = {
-                showInfoPopup = false
-                onRemove()
+            onRemove = onRemove?.let { remove ->
+                {
+                    showInfoPopup = false
+                    remove()
+                }
             }
         )
     }
@@ -319,7 +343,7 @@ private fun ScheduleBlockView(
 private fun ScheduleBlockInfoDialog(
     block: ScheduleBlock,
     onDismiss: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: (() -> Unit)?
 ) {
     val scheduleColors = JupiterpTheme.extendedColors.scheduleColors
     val accentColor = scheduleColors[block.colorIndex % scheduleColors.size]
@@ -366,7 +390,7 @@ private fun ScheduleBlockInfoDialog(
                 InfoRow(
                     icon = Icons.Outlined.Schedule,
                     label = "Time",
-                    value = "${block.meeting.classtime.startFormatted} - ${block.meeting.classtime.endFormatted}"
+                    value = "${block.classtime.startFormatted} - ${block.classtime.endFormatted}"
                 )
 
                 // Day
@@ -380,7 +404,7 @@ private fun ScheduleBlockInfoDialog(
                 InfoRow(
                     icon = Icons.Outlined.LocationOn,
                     label = "Location",
-                    value = block.meeting.location.display
+                    value = block.location?.display ?: "Online (synchronous)"
                 )
 
                 // Instructors
@@ -402,15 +426,18 @@ private fun ScheduleBlockInfoDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onRemove) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Remove", color = MaterialTheme.colorScheme.error)
+            // Hidden in read-only contexts (onRemove == null)
+            if (onRemove != null) {
+                TextButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
             }
         },
         confirmButton = {

@@ -23,7 +23,7 @@ actual fun currentDateInt(): Int {
 
 actual fun addToCalendar(selections: List<ScheduleSelection>, onResult: (Boolean) -> Unit) {
     val context = AndroidContextHolder.appContext ?: run { onResult(false); return }
-    val content = generateIcsContent(selections)
+    val content = generateIcsContent(selections) ?: run { onResult(false); return }
     val file = File(context.cacheDir, "jupiterp_schedule.ics")
     file.writeText(content)
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)

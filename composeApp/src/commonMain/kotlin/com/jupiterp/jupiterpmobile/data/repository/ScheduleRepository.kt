@@ -9,12 +9,11 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
-import com.jupiterp.jupiterpmobile.domain.model.TimeSlot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -30,26 +29,29 @@ class ScheduleRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _currentSelections = MutableStateFlow<List<ScheduleSelection>>(emptyList())
-    val currentSelections: Flow<List<ScheduleSelection>> = _currentSelections.asStateFlow()
+    val currentSelections: StateFlow<List<ScheduleSelection>> = _currentSelections.asStateFlow()
 
     private val _savedSchedules = MutableStateFlow<List<StoredSchedule>>(emptyList())
-    val savedSchedules: Flow<List<StoredSchedule>> = _savedSchedules.asStateFlow()
+    val savedSchedules: StateFlow<List<StoredSchedule>> = _savedSchedules.asStateFlow()
 
     private var colorCounter = 0
-    private var isInitialized = false
+
+    // Set on the first user mutation so the async init load below can't
+    // clobber actions taken before it completes.
+    private var userMutated = false
 
     init {
         // Load saved data on init
         scope.launch {
             try {
                 val appData = storage.loadAppData()
-                _currentSelections.value = appData.currentSchedule
-                _savedSchedules.value = appData.savedSchedules
-                colorCounter = appData.colorCounter
-                isInitialized = true
+                if (!userMutated) {
+                    _currentSelections.value = appData.currentSchedule
+                    _savedSchedules.value = appData.savedSchedules
+                    colorCounter = appData.colorCounter
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
-                isInitialized = true
             }
         }
     }
@@ -68,13 +70,15 @@ class ScheduleRepository(
         // Detect conflicts for caller awareness, but still allow the add
         val conflicts = findConflicts(section, currentList)
 
-        // Add the section
+        // Add the section. colorIndex grows monotonically; the UI applies the
+        // modulo against the theme palette when rendering.
         val selection = ScheduleSelection(
             course = course,
             section = section,
-            colorIndex = colorCounter++ % ScheduleColors.size
+            colorIndex = colorCounter++
         )
 
+        userMutated = true
         _currentSelections.update { it + selection }
         persistCurrentSchedule()
         return if (conflicts.isNotEmpty()) AddSectionResult.Conflict(conflicts) else AddSectionResult.Success
@@ -107,9 +111,10 @@ class ScheduleRepository(
         val selection = ScheduleSelection(
             course = course,
             section = placeholderSection,
-            colorIndex = colorCounter++ % ScheduleColors.size
+            colorIndex = colorCounter++
         )
 
+        userMutated = true
         _currentSelections.update { it + selection }
         persistCurrentSchedule()
         return AddSectionResult.Success
@@ -119,6 +124,7 @@ class ScheduleRepository(
      * Remove a section from the current schedule
      */
     fun removeSection(courseCode: String, sectionCode: String) {
+        userMutated = true
         _currentSelections.update { selections ->
             selections.filter {
                 !(it.course.courseCode == courseCode && it.section.sectionCode == sectionCode)
@@ -131,6 +137,7 @@ class ScheduleRepository(
      * Remove all sections of a course
      */
     fun removeCourse(courseCode: String) {
+        userMutated = true
         _currentSelections.update { selections ->
             selections.filter { it.course.courseCode != courseCode }
         }
@@ -141,28 +148,49 @@ class ScheduleRepository(
      * Clear current schedule
      */
     fun clearSchedule() {
+        userMutated = true
         _currentSelections.value = emptyList()
         colorCounter = 0
         persistCurrentSchedule()
     }
 
     /**
-     * Save current schedule with a name
+     * Replace the current schedule wholesale (e.g. applying a generated
+     * schedule). Color indices are reassigned sequentially.
      */
-    fun saveCurrentSchedule(name: String): StoredSchedule {
+    fun setCurrentSchedule(selections: List<ScheduleSelection>) {
+        userMutated = true
+        _currentSelections.value = selections.mapIndexed { i, selection ->
+            selection.copy(colorIndex = i)
+        }
+        colorCounter = selections.size
+        persistCurrentSchedule()
+    }
+
+    /**
+     * Save a schedule with a name
+     */
+    fun saveSchedule(name: String, selections: List<ScheduleSelection>): StoredSchedule {
         val now = Clock.System.now().toEpochMilliseconds()
         val schedule = StoredSchedule(
             id = generateId(),
             name = name,
-            selections = _currentSelections.value,
+            selections = selections,
             createdAt = now,
             updatedAt = now
         )
 
+        userMutated = true
         _savedSchedules.update { it + schedule }
         persistSavedSchedules()
         return schedule
     }
+
+    /**
+     * Save current schedule with a name
+     */
+    fun saveCurrentSchedule(name: String): StoredSchedule =
+        saveSchedule(name, _currentSelections.value)
 
     /**
      * Load a saved schedule as current
@@ -170,6 +198,7 @@ class ScheduleRepository(
     fun loadSchedule(scheduleId: String) {
         val schedule = _savedSchedules.value.find { it.id == scheduleId }
         if (schedule != null) {
+            userMutated = true
             _currentSelections.value = schedule.selections
             colorCounter = schedule.selections.maxOfOrNull { it.colorIndex + 1 } ?: 0
             persistCurrentSchedule()
@@ -180,6 +209,7 @@ class ScheduleRepository(
      * Delete a saved schedule
      */
     fun deleteSchedule(scheduleId: String) {
+        userMutated = true
         _savedSchedules.update { schedules ->
             schedules.filter { it.id != scheduleId }
         }
@@ -190,6 +220,7 @@ class ScheduleRepository(
      * Rename a saved schedule
      */
     fun renameSchedule(scheduleId: String, newName: String) {
+        userMutated = true
         _savedSchedules.update { schedules ->
             schedules.map {
                 if (it.id == scheduleId) {
@@ -200,121 +231,6 @@ class ScheduleRepository(
             }
         }
         persistSavedSchedules()
-    }
-
-    /**
-     * Update hover state for a selection
-     */
-    fun setHovered(courseCode: String, sectionCode: String, isHovered: Boolean) {
-        _currentSelections.update { selections ->
-            selections.map { selection ->
-                if (selection.course.courseCode == courseCode &&
-                    selection.section.sectionCode == sectionCode) {
-                    selection.copy(isHovered = isHovered)
-                } else {
-                    selection
-                }
-            }
-        }
-    }
-
-    /**
-     * Get schedule blocks for rendering (M-F in-person and online sync)
-     */
-    fun getScheduleBlocks(): List<ScheduleBlock> {
-        val weekdays = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
-        return _currentSelections.value.flatMap { selection ->
-            selection.section.meetings.filterIsInstance<ClassMeeting.InPerson>().flatMap { meeting ->
-                meeting.classtime.daysList
-                    .filter { it in weekdays }
-                    .map { day ->
-                        ScheduleBlock(
-                            selection = selection,
-                            meeting = meeting,
-                            day = day,
-                            startTime = meeting.classtime.start,
-                            endTime = meeting.classtime.end,
-                            colorIndex = selection.colorIndex
-                        )
-                    }
-            }
-        }
-    }
-
-    /**
-     * Get "Other" items that don't fit on the M-F schedule grid
-     * (Online Async, Weekend classes, TBA, sections with no meetings)
-     */
-    fun getOtherItems(): List<OtherScheduleItem> {
-        val weekdays = listOf(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY)
-        val results = mutableListOf<OtherScheduleItem>()
-
-        for (selection in _currentSelections.value) {
-            val meetings = selection.section.meetings
-
-            // Check for sections with no meetings
-            if (meetings.isEmpty()) {
-                results.add(OtherScheduleItem.NoMeetings(selection, selection.colorIndex))
-                continue
-            }
-
-            // Check each meeting type
-            for (meeting in meetings) {
-                when (meeting) {
-                    is ClassMeeting.OnlineAsync -> {
-                        // Only add once per selection for async
-                        if (results.none { it is OtherScheduleItem.OnlineAsync && it.selection == selection }) {
-                            results.add(OtherScheduleItem.OnlineAsync(selection, selection.colorIndex))
-                        }
-                    }
-                    is ClassMeeting.TBA, is ClassMeeting.Unknown -> {
-                        if (results.none { it is OtherScheduleItem.TBA && it.selection == selection }) {
-                            results.add(OtherScheduleItem.TBA(selection, selection.colorIndex))
-                        }
-                    }
-                    is ClassMeeting.InPerson -> {
-                        // Check for weekend days
-                        for (day in meeting.classtime.daysList) {
-                            if (day !in weekdays) {
-                                results.add(OtherScheduleItem.Weekend(
-                                    selection = selection,
-                                    colorIndex = selection.colorIndex,
-                                    meeting = meeting,
-                                    day = day,
-                                    timeRange = meeting.classtime.timeRange
-                                ))
-                            }
-                        }
-                    }
-                    is ClassMeeting.OnlineSync -> {
-                        // Check for weekend days for online sync
-                        for (day in meeting.classtime.daysList) {
-                            if (day !in weekdays) {
-                                results.add(OtherScheduleItem.Weekend(
-                                    selection = selection,
-                                    colorIndex = selection.colorIndex,
-                                    meeting = meeting,
-                                    day = day,
-                                    timeRange = meeting.classtime.timeRange
-                                ))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        return results
-    }
-
-    /**
-     * Calculate total credits
-     */
-    fun getTotalCredits(): IntRange {
-        val selections = _currentSelections.value
-        val minCredits = selections.sumOf { it.course.minCredits }
-        val maxCredits = selections.sumOf { it.course.maxCredits ?: it.course.minCredits }
-        return minCredits..maxCredits
     }
 
     /**
@@ -342,13 +258,13 @@ class ScheduleRepository(
      * Persist current schedule to storage
      */
     private fun persistCurrentSchedule() {
+        val selections = _currentSelections.value
+        val counter = colorCounter
         scope.launch {
             try {
-                val currentData = storage.loadAppData()
-                storage.saveAppData(currentData.copy(
-                    currentSchedule = _currentSelections.value,
-                    colorCounter = colorCounter
-                ))
+                storage.updateAppData {
+                    it.copy(currentSchedule = selections, colorCounter = counter)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -359,12 +275,12 @@ class ScheduleRepository(
      * Persist saved schedules to storage
      */
     private fun persistSavedSchedules() {
+        val schedules = _savedSchedules.value
         scope.launch {
             try {
-                val currentData = storage.loadAppData()
-                storage.saveAppData(currentData.copy(
-                    savedSchedules = _savedSchedules.value
-                ))
+                storage.updateAppData {
+                    it.copy(savedSchedules = schedules)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -378,36 +294,15 @@ class ScheduleRepository(
         section: Section,
         currentSelections: List<ScheduleSelection>
     ): List<ScheduleSelection> {
-        val newSlots = extractTimeSlots(section.meetings)
+        val newSlots = section.timeSlots
 
         return currentSelections.filter { selection ->
-            val existingSlots = extractTimeSlots(selection.section.meetings)
+            val existingSlots = selection.section.timeSlots
 
             newSlots.any { newSlot ->
                 existingSlots.any { existingSlot ->
                     newSlot.overlaps(existingSlot)
                 }
-            }
-        }
-    }
-
-    /**
-     * Extract time slots from meetings
-     */
-    private fun extractTimeSlots(meetings: List<ClassMeeting>): List<TimeSlot> {
-        return meetings.flatMap { meeting ->
-            when (meeting) {
-                is ClassMeeting.InPerson -> {
-                    meeting.classtime.daysList.map { day ->
-                        TimeSlot(day, meeting.classtime.start, meeting.classtime.end)
-                    }
-                }
-                is ClassMeeting.OnlineSync -> {
-                    meeting.classtime.daysList.map { day ->
-                        TimeSlot(day, meeting.classtime.start, meeting.classtime.end)
-                    }
-                }
-                else -> emptyList()
             }
         }
     }
@@ -420,14 +315,112 @@ class ScheduleRepository(
     companion object {
         const val PLACEHOLDER_SECTION_CODE = "---"
 
-        val ScheduleColors = listOf(
-            0xFFB3C8F2, 0xFFF2B3B3, 0xFFF2EFB3,
-            0xFFB3F2E6, 0xFFDEB3F2, 0xFFB8F2B3,
-            0xFFF2C996, 0xFFEDAFD6, 0xFFE6CDE3,
-            0xFFFEDFCC, 0xFFADE0F6, 0xFFFDD4F3,
-            0xFFC4BBF1, 0xFFD3F4BA, 0xFFAAEFF4,
-            0xFFFFC6B0
+        private val weekdays = listOf(
+            DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
         )
+
+        /**
+         * Get schedule blocks for rendering (M-F in-person and online sync)
+         */
+        fun getScheduleBlocks(selections: List<ScheduleSelection>): List<ScheduleBlock> {
+            return selections.flatMap { selection ->
+                selection.section.meetings.flatMap { meeting ->
+                    val (classtime, location) = when (meeting) {
+                        is ClassMeeting.InPerson -> meeting.classtime to meeting.location
+                        is ClassMeeting.OnlineSync -> meeting.classtime to null
+                        else -> return@flatMap emptyList<ScheduleBlock>()
+                    }
+                    classtime.daysList
+                        .filter { it in weekdays }
+                        .map { day ->
+                            ScheduleBlock(
+                                selection = selection,
+                                classtime = classtime,
+                                location = location,
+                                day = day,
+                                startTime = classtime.start,
+                                endTime = classtime.end,
+                                colorIndex = selection.colorIndex
+                            )
+                        }
+                }
+            }
+        }
+
+        /**
+         * Get "Other" items that don't fit on the M-F schedule grid
+         * (Online Async, Weekend classes, TBA, sections with no meetings)
+         */
+        fun getOtherItems(selections: List<ScheduleSelection>): List<OtherScheduleItem> {
+            val results = mutableListOf<OtherScheduleItem>()
+
+            for (selection in selections) {
+                val meetings = selection.section.meetings
+
+                // Check for sections with no meetings
+                if (meetings.isEmpty()) {
+                    results.add(OtherScheduleItem.NoMeetings(selection, selection.colorIndex))
+                    continue
+                }
+
+                // Check each meeting type
+                for (meeting in meetings) {
+                    when (meeting) {
+                        is ClassMeeting.OnlineAsync -> {
+                            // Only add once per selection for async
+                            if (results.none { it is OtherScheduleItem.OnlineAsync && it.selection == selection }) {
+                                results.add(OtherScheduleItem.OnlineAsync(selection, selection.colorIndex))
+                            }
+                        }
+                        is ClassMeeting.TBA, is ClassMeeting.Unknown -> {
+                            if (results.none { it is OtherScheduleItem.TBA && it.selection == selection }) {
+                                results.add(OtherScheduleItem.TBA(selection, selection.colorIndex))
+                            }
+                        }
+                        is ClassMeeting.InPerson -> {
+                            // Check for weekend days
+                            for (day in meeting.classtime.daysList) {
+                                if (day !in weekdays) {
+                                    results.add(OtherScheduleItem.Weekend(
+                                        selection = selection,
+                                        colorIndex = selection.colorIndex,
+                                        meeting = meeting,
+                                        day = day,
+                                        timeRange = meeting.classtime.timeRange
+                                    ))
+                                }
+                            }
+                        }
+                        is ClassMeeting.OnlineSync -> {
+                            // Check for weekend days for online sync
+                            for (day in meeting.classtime.daysList) {
+                                if (day !in weekdays) {
+                                    results.add(OtherScheduleItem.Weekend(
+                                        selection = selection,
+                                        colorIndex = selection.colorIndex,
+                                        meeting = meeting,
+                                        day = day,
+                                        timeRange = meeting.classtime.timeRange
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return results
+        }
+
+        /**
+         * Calculate total credits
+         */
+        fun getTotalCredits(selections: List<ScheduleSelection>): IntRange {
+            val minCredits = selections.sumOf { it.course.minCredits }
+            val maxCredits = selections.sumOf { it.course.maxCredits ?: it.course.minCredits }
+            return minCredits..maxCredits
+        }
     }
 }
 

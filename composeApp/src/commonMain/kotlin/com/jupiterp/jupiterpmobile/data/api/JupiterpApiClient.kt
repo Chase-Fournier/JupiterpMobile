@@ -28,7 +28,10 @@ import kotlinx.serialization.serializer
 class JupiterpApiClient {
 
     companion object {
-        private const val BASE_URL = "http://api.jupiterp.com/v0"
+        // Note: every request path below starts with "/v0/...". Ktor replaces
+        // the default URL's path when the request path is absolute, so the
+        // version segment must live in the paths, not in the base URL.
+        private const val BASE_URL = "http://api.jupiterp.com"
     }
 
     private val json = Json {
@@ -65,7 +68,7 @@ class JupiterpApiClient {
      * Get a list of courses with full course info (without sections)
      */
     suspend fun getCourses(params: CourseSearchParams = CourseSearchParams()): Result<List<CourseResponse>> = runCatching {
-        val response = client.get("/courses") {
+        val response = client.get("/v0/courses") {
             applyCommonCourseParams(params)
         }
         json.decodeFromString(ListSerializer(serializer<CourseResponse>()), response.bodyAsText())
@@ -210,12 +213,10 @@ class JupiterpApiClient {
     /**
      * Convenience method: Get instructor rating by name
      */
-    suspend fun getInstructorByName(name: String): Result<InstructorResponse?> = runCatching {
-        val result = getInstructors(
+    suspend fun getInstructorByName(name: String): Result<InstructorResponse?> =
+        getInstructors(
             InstructorSearchParams(instructorNames = listOf(name), limit = 1)
-        )
-        result.getOrNull()?.firstOrNull()
-    }
+        ).map { it.firstOrNull() }
 
     fun close() {
         client.close()
