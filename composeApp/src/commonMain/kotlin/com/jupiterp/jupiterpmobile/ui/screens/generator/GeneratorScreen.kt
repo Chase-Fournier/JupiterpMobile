@@ -699,30 +699,20 @@ private fun ScheduleResultCard(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Header: rank, featured rating, "details" affordance
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            // Header: rank + title on the left, rating featured on the right
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 RankBadge(rank)
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    RatingChip(rating = metrics.avgInstructorRating)
-                    if (metrics.avgInstructorRating == null) {
-                        Text(
-                            "No ratings yet",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = JupiterpTheme.extendedColors.textSecondary
-                        )
-                    } else {
-                        Text(
-                            "${metrics.ratedSectionCount} of ${metrics.sectionCount} rated",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = JupiterpTheme.extendedColors.textSecondary
-                        )
-                    }
-                }
+                Text(
+                    "Schedule #$rank",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                RatingSummary(metrics)
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "View details",
@@ -730,29 +720,38 @@ private fun ScheduleResultCard(
                 )
             }
 
-            // Layout the preview alongside the key numbers
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (blocks.isNotEmpty()) {
-                    MiniSchedulePreview(
-                        blocks = blocks,
-                        modifier = Modifier.width(120.dp).height(108.dp)
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    MetricBadge(creditsText(metrics))
-                    MetricBadge("${metrics.daysWithClasses} day${if (metrics.daysWithClasses != 1) "s" else ""} on campus")
-                    MetricBadge(gapText(metrics.totalGapMinutes))
-                    MetricBadge(classWindowText(metrics))
+            HorizontalDivider(color = JupiterpTheme.extendedColors.divider)
+
+            // Body: preview beside details on wide cards, stacked on narrow ones
+            BoxWithConstraints {
+                val stack = maxWidth < 360.dp
+                if (stack) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (blocks.isNotEmpty()) {
+                            MiniSchedulePreview(
+                                blocks = blocks,
+                                modifier = Modifier.fillMaxWidth().height(112.dp)
+                            )
+                        }
+                        ScheduleCardDetails(schedule.selections, metrics)
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        if (blocks.isNotEmpty()) {
+                            MiniSchedulePreview(
+                                blocks = blocks,
+                                modifier = Modifier.width(128.dp).height(132.dp)
+                            )
+                        }
+                        ScheduleCardDetails(
+                            schedule.selections, metrics,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
 
-            // Course chips
-            FlowChips(
-                schedule.selections.map { "${it.course.courseCode} ${it.section.sectionCode}" }
-            )
+            HorizontalDivider(color = JupiterpTheme.extendedColors.divider)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -766,7 +765,7 @@ private fun ScheduleResultCard(
                 Button(
                     onClick = onApply,
                     shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = JupiterpTheme.extendedColors.orange
                     )
@@ -774,6 +773,81 @@ private fun ScheduleResultCard(
                     Text("Apply", fontWeight = FontWeight.SemiBold)
                 }
             }
+        }
+    }
+}
+
+/** Adaptive metric chips + a per-course line with section and instructor names. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScheduleCardDetails(
+    selections: List<com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection>,
+    metrics: com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            MetricBadge(creditsText(metrics))
+            MetricBadge("${metrics.daysWithClasses} day${if (metrics.daysWithClasses != 1) "s" else ""}")
+            MetricBadge(gapText(metrics.totalGapMinutes))
+            MetricBadge(classWindowText(metrics))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            selections.forEach { selection ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        selection.course.courseCode,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        selection.section.sectionCode,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JupiterpTheme.extendedColors.sectionCodes
+                    )
+                    Text(
+                        selection.section.instructorsDisplay,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JupiterpTheme.extendedColors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Rating chip plus coverage line, or a muted "Unrated" pill when no ratings exist. */
+@Composable
+private fun RatingSummary(metrics: com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics) {
+    if (metrics.avgInstructorRating == null) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Text(
+                "Unrated",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = JupiterpTheme.extendedColors.textSecondary
+            )
+        }
+    } else {
+        Column(horizontalAlignment = Alignment.End) {
+            RatingChip(rating = metrics.avgInstructorRating)
+            Text(
+                "${metrics.ratedSectionCount}/${metrics.sectionCount} rated",
+                style = MaterialTheme.typography.labelSmall,
+                color = JupiterpTheme.extendedColors.textSecondary
+            )
         }
     }
 }
@@ -1003,7 +1077,7 @@ private fun MetricsGrid(metrics: com.jupiterp.jupiterpmobile.domain.scheduler.Sc
     val stats = buildList {
         add("Credits" to creditsText(metrics))
         add("Days on campus" to "${metrics.daysWithClasses}")
-        add("Total gaps" to gapText(metrics.totalGapMinutes))
+        add("Gaps / week" to gapDurationText(metrics.totalGapMinutes))
         metrics.earliestStartMinutes?.let { add("First class" to formatMinutes(it)) }
         metrics.latestEndMinutes?.let { add("Last class" to formatMinutes(it)) }
         add("Tightest seats" to "${metrics.minOpenSeats} open")
@@ -1075,29 +1149,6 @@ private fun MetricBadge(text: String) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-    }
-}
-
-@Composable
-private fun FlowChips(labels: List<String>) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        labels.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { label ->
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = JupiterpTheme.extendedColors.orangeContainer.copy(alpha = 0.5f)
-                    ) {
-                        Text(
-                            label,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1232,9 +1283,15 @@ private fun classWindowText(metrics: com.jupiterp.jupiterpmobile.domain.schedule
     else "${formatMinutes(start)} – ${formatMinutes(end)}"
 }
 
-private fun gapText(gapMinutes: Int): String = when {
-    gapMinutes == 0 -> "no gaps"
-    gapMinutes < 60 -> "${gapMinutes}m gaps"
-    gapMinutes % 60 == 0 -> "${gapMinutes / 60}h gaps"
-    else -> "${gapMinutes / 60}h ${gapMinutes % 60}m gaps"
+// Bare duration, e.g. "none", "45m", "2h", "1h 30m".
+private fun gapDurationText(gapMinutes: Int): String = when {
+    gapMinutes == 0 -> "none"
+    gapMinutes < 60 -> "${gapMinutes}m"
+    gapMinutes % 60 == 0 -> "${gapMinutes / 60}h"
+    else -> "${gapMinutes / 60}h ${gapMinutes % 60}m"
 }
+
+// Gap totals are summed across the whole week, so the card chip says "/wk"
+// explicitly to avoid reading a weekly figure as a single-day one.
+private fun gapText(gapMinutes: Int): String =
+    if (gapMinutes == 0) "no gaps" else "${gapDurationText(gapMinutes)} gaps/wk"

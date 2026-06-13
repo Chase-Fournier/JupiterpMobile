@@ -20,6 +20,9 @@ object ScheduleGenerator {
     /** Hard cap on explored search nodes so degenerate inputs can't hang the app. */
     private const val MAX_NODES = 500_000
 
+    /** Gaps this short or shorter are treated as transition time, not free time. */
+    private const val PASSING_PERIOD_MINUTES = 15
+
     internal data class MinuteSlot(val day: DayOfWeek, val start: Int, val end: Int) {
         fun conflictsWith(other: MinuteSlot, minGapMinutes: Int): Boolean =
             day == other.day &&
@@ -135,16 +138,18 @@ object ScheduleGenerator {
         val slotsByDay = slots.groupBy { it.day }
 
         // Idle minutes between classes on each day, summed across the week.
-        // A section's separate meetings (e.g. lecture + lab) each contribute a
-        // slot, so a midday break within one course is counted too. We track a
-        // running max end rather than the previous slot's end so a fully nested
-        // meeting can't produce a negative or double-counted gap.
+        // We ignore gaps no longer than a passing period: a 10-minute hop
+        // between back-to-back classes is transition time, not free time, and
+        // counting those across every repeated weekday inflated the total. A
+        // running max-end keeps nested or multi-meeting sections from producing
+        // negative or double-counted gaps.
         val totalGapMinutes = slotsByDay.values.sumOf { daySlots ->
             val sorted = daySlots.sortedBy { it.start }
             var gap = 0
             var coveredUntil = sorted.first().end
             for (slot in sorted.drop(1)) {
-                if (slot.start > coveredUntil) gap += slot.start - coveredUntil
+                val between = slot.start - coveredUntil
+                if (between > PASSING_PERIOD_MINUTES) gap += between
                 coveredUntil = max(coveredUntil, slot.end)
             }
             gap
