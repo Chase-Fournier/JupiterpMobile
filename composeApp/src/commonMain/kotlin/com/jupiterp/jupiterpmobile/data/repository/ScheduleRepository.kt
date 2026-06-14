@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 
 /**
@@ -44,6 +45,7 @@ class ScheduleRepository(
 
     // Set on the first user mutation so the async init load below can't
     // clobber actions taken before it completes.
+    @Volatile
     private var userMutated = false
 
     init {
@@ -51,9 +53,13 @@ class ScheduleRepository(
         scope.launch {
             try {
                 val appData = storage.loadAppData()
+                _currentSelections.update { existing ->
+                    if (userMutated || existing.isNotEmpty()) existing else appData.currentSchedule
+                }
+                _savedSchedules.update { existing ->
+                    if (userMutated || existing.isNotEmpty()) existing else appData.savedSchedules
+                }
                 if (!userMutated) {
-                    _currentSelections.value = appData.currentSchedule
-                    _savedSchedules.value = appData.savedSchedules
                     colorCounter = appData.colorCounter
                 }
             } catch (e: Exception) {
@@ -66,6 +72,7 @@ class ScheduleRepository(
      * Add a section to the current schedule
      */
     fun addSection(course: Course, section: Section): AddSectionResult {
+        userMutated = true
         val currentList = _currentSelections.value
 
         // Check if section is already added
@@ -84,7 +91,6 @@ class ScheduleRepository(
             colorIndex = colorCounter++
         )
 
-        userMutated = true
         _currentSelections.update { it + selection }
         persistCurrentSchedule()
         return if (conflicts.isNotEmpty()) AddSectionResult.Conflict(conflicts) else AddSectionResult.Success
@@ -95,6 +101,7 @@ class ScheduleRepository(
      * Creates a placeholder section to track the course
      */
     fun addCourseWithoutSection(course: Course): AddSectionResult {
+        userMutated = true
         val currentList = _currentSelections.value
 
         // Check if course is already added (with placeholder section)
@@ -120,7 +127,6 @@ class ScheduleRepository(
             colorIndex = colorCounter++
         )
 
-        userMutated = true
         _currentSelections.update { it + selection }
         persistCurrentSchedule()
         return AddSectionResult.Success
@@ -177,6 +183,7 @@ class ScheduleRepository(
      * Save a schedule with a name
      */
     fun saveSchedule(name: String, selections: List<ScheduleSelection>): StoredSchedule {
+        userMutated = true
         val now = Clock.System.now().toEpochMilliseconds()
         val schedule = StoredSchedule(
             id = generateId(),
@@ -186,7 +193,6 @@ class ScheduleRepository(
             updatedAt = now
         )
 
-        userMutated = true
         _savedSchedules.update { it + schedule }
         persistSavedSchedules()
         return schedule
@@ -202,9 +208,9 @@ class ScheduleRepository(
      * Load a saved schedule as current
      */
     fun loadSchedule(scheduleId: String) {
+        userMutated = true
         val schedule = _savedSchedules.value.find { it.id == scheduleId }
         if (schedule != null) {
-            userMutated = true
             _currentSelections.value = schedule.selections
             colorCounter = schedule.selections.maxOfOrNull { it.colorIndex + 1 } ?: 0
             persistCurrentSchedule()
