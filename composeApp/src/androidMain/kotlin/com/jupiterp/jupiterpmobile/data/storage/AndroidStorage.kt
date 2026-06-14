@@ -25,13 +25,9 @@ class AndroidLocalStorage(private val context: Context) : MutexGuardedStorage() 
     }
 
     override suspend fun saveAppData(data: AppData) {
-        try {
-            val jsonString = json.encodeToString(data)
-            prefs.edit().putString(KEY_APP_DATA, jsonString).apply()
-            _appData.value = data
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        val jsonString = json.encodeToString(data)
+        prefs.edit().putString(KEY_APP_DATA, jsonString).apply()
+        _appData.value = data
     }
 
     override suspend fun loadAppData(): AppData {

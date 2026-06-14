@@ -23,14 +23,10 @@ class IOSLocalStorage : MutexGuardedStorage() {
     }
 
     override suspend fun saveAppData(data: AppData) {
-        try {
-            val jsonString = json.encodeToString(data)
-            userDefaults.setObject(jsonString, forKey = KEY_APP_DATA)
-            userDefaults.synchronize()
-            _appData.value = data
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        val jsonString = json.encodeToString(data)
+        userDefaults.setObject(jsonString, forKey = KEY_APP_DATA)
+        userDefaults.synchronize()
+        _appData.value = data
     }
 
     override suspend fun loadAppData(): AppData {
