@@ -18,13 +18,11 @@ kotlin = "2.3.0"
 kotlinxSerializationJsonVersion = "2.3.0"
 ktorClientAndroid = "3.4.0"
 ktorClientCio = "3.3.3"
-ktorClientContentNegotiation = "3.3.3"
-ktorClientCore = "3.3.3"
+ktorClientContentNegotiation = "3.4.0"
+ktorClientCore = "3.4.0"
 ktorClientDarwin = "3.4.0"
-ktorClientLogging = "3.3.3"
-ktorSerializationKotlinxJson = "3.3.3"
-ktorServerContentNegotiation = "3.3.3"
-ktorServerNetty = "3.3.3"
+ktorClientLogging = "3.4.0"
+ktorSerializationKotlinxJson = "3.4.0"
 material3 = "1.9.0"
 materialIconsExtended = "1.7.3"
 runtime = "1.10.0"
@@ -64,8 +62,6 @@ ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "kto
 ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktorClientLogging" }
 ktor-ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktorClientContentNegotiation" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktorSerializationKotlinxJson" }
-ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktorServerContentNegotiation" }
-ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktorServerNetty" }
 material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "materialIconsExtended" }
 material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
 runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "runtime" }
