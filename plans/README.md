@@ -11,15 +11,23 @@ plan fully before starting, honor its STOP conditions, and update your row when 
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001  | Remove unused server Ktor dep; align Ktor client versions | P1 | S | — | TODO |
-| 002  | Make ICS export testable, escape all ICS fields, add tests | P1 | M | — | TODO |
-| 003  | Add CI workflow running the unit test suite | P1 | M | — | TODO |
-| 004  | Move the API to HTTPS; drop cleartext allowances | P1 | S–M | — | TODO |
-| 005  | Surface schedule-persistence failures to the user | P2 | M | — | TODO |
-| 006  | Harden startup load against early-mutation clobber | P3 | S | 005 (same file) | TODO |
-| 007  | Consolidate duplicated 12-hour time-formatting | P3 | S | — | TODO |
+| 001  | Remove unused server Ktor dep; align Ktor client versions | P1 | S | — | DONE — reviewed & approved; branch `advisor/001-ktor-dependency-hygiene` (`c4d0396`), not yet merged |
+| 002  | Make ICS export testable, escape all ICS fields, add tests | P1 | M | — | DONE — reviewed & approved; branch `advisor/002-ics-export-tests` (`2bb98ea`, `1b96d76`), not yet merged |
+| 003  | Add CI workflow running the unit test suite | P1 | M | — | DONE — reviewed & approved; branch `advisor/003-ci-workflow` (`b3e8bbb`), not yet merged |
+| 004  | Move the API to HTTPS; drop cleartext allowances | P1 | S–M | — | TODO — not executed (gated on confirming the API serves HTTPS) |
+| 005  | Surface schedule-persistence failures to the user | P2 | M | — | DONE — reviewed & approved; branch `advisor/005-surface-storage-errors` (`da35faa`,`e4ccbb3`,`2a989eb`), not yet merged |
+| 006  | Harden startup load against early-mutation clobber | P3 | S | 005 (same file) | DONE — reviewed & approved; branch `advisor/006-startup-load-race` (`321d264`), not yet merged. **Integrate after 005.** |
+| 007  | Consolidate duplicated 12-hour time-formatting | P3 | S | — | DONE — reviewed & approved; branch `advisor/007-consolidate-time-formatting` (`743acf0`), not yet merged |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with rationale)
+
+> **Reviewer note (2026-06-14):** Plans 001, 002, 003, 005, 006, 007 were executed by dispatched
+> executors in isolated worktrees and approved on review (done criteria re-run independently,
+> diffs read, new tests audited as meaningful). Each lives on its own `advisor/*` branch — **none
+> are merged; merging is the maintainer's decision.** All six branched from `18c3baf`, so they do
+> not see each other's changes. Only 005 and 006 touch the same file (`ScheduleRepository.kt`):
+> merge **005 before 006** and re-run the suite. Plan 004 was intentionally skipped (its first
+> step verifies the API serves HTTPS and is a hard gate).
 
 ## Recommended sequence & dependency notes
 
