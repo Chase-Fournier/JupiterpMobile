@@ -11,12 +11,34 @@ fun Float.toOneDecimalString(): String {
 }
 
 /**
+ * Escapes a value for use in an iCalendar TEXT property (RFC 5545 §3.3.11):
+ * backslash, semicolon, and comma are backslash-escaped; CR/LF become the
+ * literal two-character sequence "\n" so a value can never break field or line
+ * structure.
+ */
+internal fun escapeIcsText(value: String): String =
+    value
+        .replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+        .replace("\r", "\\n")
+
+/**
  * Builds the .ics text for the current selections, or null if the active
  * semester's dates aren't in the lookup tables (callers should surface that
  * instead of exporting events on wrong dates).
  */
 fun generateIcsContent(selections: List<ScheduleSelection>): String? {
     val semester = activeSemester() ?: return null
+    return generateIcsContent(selections, semester)
+}
+
+internal fun generateIcsContent(
+    selections: List<ScheduleSelection>,
+    semester: SemesterDates
+): String {
     val sb = StringBuilder()
     sb.append("BEGIN:VCALENDAR\r\n")
     sb.append("VERSION:2.0\r\n")
@@ -25,8 +47,7 @@ fun generateIcsContent(selections: List<ScheduleSelection>): String? {
     for (selection in selections) {
         val courseCode = selection.course.courseCode
         val sectionCode = selection.section.sectionCode
-        val courseName = selection.course.name
-            .replace("\\", "\\\\").replace(",", "\\,").replace("\n", "\\n")
+        val courseName = escapeIcsText(selection.course.name)
         for (meeting in selection.section.meetings) {
             val days: List<DayOfWeek>
             val startTime: Float
@@ -55,7 +76,7 @@ fun generateIcsContent(selections: List<ScheduleSelection>): String? {
             sb.append("DTSTART:${dtStart}T${formatIcsTime(startTime)}00\r\n")
             sb.append("DTEND:${dtStart}T${formatIcsTime(endTime)}00\r\n")
             sb.append("RRULE:FREQ=WEEKLY;BYDAY=$byDay;UNTIL=${semester.endIcs}\r\n")
-            sb.append("SUMMARY:$courseCode ($sectionCode) - $location\r\n")
+            sb.append("SUMMARY:$courseCode ($sectionCode) - ${escapeIcsText(location)}\r\n")
             sb.append("DESCRIPTION:$courseName\r\n")
             sb.append("END:VEVENT\r\n")
         }
@@ -86,8 +107,7 @@ private val SPRING = mapOf(
  * Returns null when the active semester's dates aren't in the tables above —
  * falling back to another semester would silently export wrong dates.
  */
-internal fun activeSemester(): SemesterDates? {
-    val today = currentDateInt()
+internal fun activeSemester(today: Int = currentDateInt()): SemesterDates? {
     val year = today / 10000
     val month = (today / 100) % 100
     return when {
@@ -104,7 +124,7 @@ fun hasKnownSemesterDates(): Boolean = activeSemester() != null
  * Returns the YYYYMMDD string of the first occurrence of [day] at or after [firstMondayInt].
  * firstMondayInt must be a Monday; day.column offsets by 0–6 days.
  */
-private fun icsDateForDay(day: DayOfWeek, firstMondayInt: Int): String {
+internal fun icsDateForDay(day: DayOfWeek, firstMondayInt: Int): String {
     val year = firstMondayInt / 10000
     val month = (firstMondayInt / 100) % 100
     val d = firstMondayInt % 100 + day.column
