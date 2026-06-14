@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -72,6 +73,12 @@ fun GeneratorScreen(
     LaunchedEffect(doneState) { if (doneState == null) detailSchedule = null }
     val viewingDetail = doneState != null && detailSchedule != null
 
+    // Schedules in the order shown on the results list; the detail view's
+    // prev/next buttons step through this same ordering.
+    val sortedSchedules = remember(doneState, sortCriterion) {
+        doneState?.schedules?.sortedByCriterion(sortCriterion).orEmpty()
+    }
+
     val title = when {
         viewingDetail -> "Schedule Details"
         doneState != null -> "Generated Schedules"
@@ -103,6 +110,24 @@ fun GeneratorScreen(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
+
+                // Step between generated schedules without leaving the detail view
+                if (viewingDetail) {
+                    val index = sortedSchedules.indexOf(detailSchedule)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(
+                        onClick = { sortedSchedules.getOrNull(index - 1)?.let { detailSchedule = it } },
+                        enabled = index > 0
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous schedule")
+                    }
+                    IconButton(
+                        onClick = { sortedSchedules.getOrNull(index + 1)?.let { detailSchedule = it } },
+                        enabled = index in 0 until sortedSchedules.lastIndex
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next schedule")
+                    }
+                }
             }
 
             when (val s = state) {
@@ -117,8 +142,8 @@ fun GeneratorScreen(
                     if (detail != null) {
                         ScheduleDetailView(
                             schedule = detail,
-                            rank = remember(s.schedules, sortCriterion, detail) {
-                                s.schedules.sortedByCriterion(sortCriterion).indexOf(detail) + 1
+                            rank = remember(sortedSchedules, detail) {
+                                sortedSchedules.indexOf(detail) + 1
                             },
                             instructorRatings = s.instructorRatings,
                             currentScheduleSize = currentScheduleSize,
