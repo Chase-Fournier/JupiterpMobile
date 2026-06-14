@@ -8,6 +8,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -977,7 +979,10 @@ private fun ScheduleContent(
                         exit = shrinkVertically(tween(150)) + fadeOut()
                     ) {
                         Column(
-                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                            modifier = Modifier
+                                .heightIn(max = 280.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             selections.forEach { sel ->
