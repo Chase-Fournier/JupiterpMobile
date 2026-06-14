@@ -122,6 +122,9 @@ class MainViewModel(
     init {
         loadDepartments()
         loadAllInstructors()
+        viewModelScope.launch {
+            scheduleRepository.errors.collect { showSnackbar(it) }
+        }
     }
 
     /**

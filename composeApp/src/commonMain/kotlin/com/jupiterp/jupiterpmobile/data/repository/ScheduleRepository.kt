@@ -12,8 +12,11 @@ import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -24,15 +27,18 @@ import kotlin.time.Clock
  * Uses local storage for persistence across app launches
  */
 class ScheduleRepository(
-    private val storage: LocalStorage
+    private val storage: LocalStorage,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     private val _currentSelections = MutableStateFlow<List<ScheduleSelection>>(emptyList())
     val currentSelections: StateFlow<List<ScheduleSelection>> = _currentSelections.asStateFlow()
 
     private val _savedSchedules = MutableStateFlow<List<StoredSchedule>>(emptyList())
     val savedSchedules: StateFlow<List<StoredSchedule>> = _savedSchedules.asStateFlow()
+
+    // Emits a user-facing message whenever a load/persist operation fails.
+    private val _errors = MutableSharedFlow<String>(replay = 1, extraBufferCapacity = 1)
+    val errors: SharedFlow<String> = _errors.asSharedFlow()
 
     private var colorCounter = 0
 
@@ -51,7 +57,7 @@ class ScheduleRepository(
                     colorCounter = appData.colorCounter
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                _errors.tryEmit("Couldn't load your saved schedules")
             }
         }
     }
@@ -266,7 +272,7 @@ class ScheduleRepository(
                     it.copy(currentSchedule = selections, colorCounter = counter)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                _errors.tryEmit("Couldn't save your schedule changes")
             }
         }
     }
@@ -282,7 +288,7 @@ class ScheduleRepository(
                     it.copy(savedSchedules = schedules)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                _errors.tryEmit("Couldn't save your schedules")
             }
         }
     }
