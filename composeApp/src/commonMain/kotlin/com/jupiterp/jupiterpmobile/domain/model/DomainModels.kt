@@ -2,7 +2,6 @@ package com.jupiterp.jupiterpmobile.domain.model
 
 import com.jupiterp.jupiterpmobile.toOneDecimalString
 import kotlinx.serialization.Serializable
-import kotlin.math.roundToInt
 
 /**
  * Domain models for the Jupiterp app
@@ -115,25 +114,8 @@ data class Classtime(
     val daysDisplay: String
         get() = days
 
-    private fun formatTime(time: Float): String {
-        // Round to whole minutes; times are stored as float hours, so values
-        // like 19.3333 (7:20 PM) carry precision error that truncation would
-        // turn into 7:19 PM.
-        val totalMinutes = (time * 60).roundToInt()
-        val hours = totalMinutes / 60
-        val minutes = totalMinutes % 60
-        val period = if (hours >= 12) "PM" else "AM"
-        val displayHour = when {
-            hours == 0 -> 12
-            hours > 12 -> hours - 12
-            else -> hours
-        }
-        return if (minutes == 0) {
-            "$displayHour $period"
-        } else {
-            "$displayHour:${minutes.toString().padStart(2, '0')} $period"
-        }
-    }
+    private fun formatTime(time: Float): String =
+        formatTwelveHourTime(time, suffixSeparator = " ", amLabel = "AM", pmLabel = "PM")
 
     private fun parseDays(days: String): List<DayOfWeek> {
         val result = mutableListOf<DayOfWeek>()

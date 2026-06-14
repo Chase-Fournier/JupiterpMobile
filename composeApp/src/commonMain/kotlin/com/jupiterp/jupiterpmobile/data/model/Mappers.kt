@@ -7,7 +7,7 @@ import com.jupiterp.jupiterpmobile.domain.model.Department
 import com.jupiterp.jupiterpmobile.domain.model.Instructor
 import com.jupiterp.jupiterpmobile.domain.model.Location
 import com.jupiterp.jupiterpmobile.domain.model.Section
-import kotlin.math.roundToInt
+import com.jupiterp.jupiterpmobile.domain.model.formatTwelveHourTime
 
 /**
  * Mappers to convert API response models to domain models
@@ -137,27 +137,8 @@ fun parseTimeToFloat(timeStr: String): Float? {
 /**
  * Format a float time back to a display string
  */
-fun formatTimeFromFloat(time: Float): String {
-    // Round to whole minutes to absorb float precision error (e.g. 19.3333
-    // for 7:20 PM would otherwise truncate to 7:19 PM)
-    val totalMinutes = (time * 60).roundToInt()
-    val hours24 = totalMinutes / 60
-    val minutes = totalMinutes % 60
-
-    val isPm = hours24 >= 12
-    val hours12 = when {
-        hours24 == 0 -> 12
-        hours24 > 12 -> hours24 - 12
-        else -> hours24
-    }
-
-    val suffix = if (isPm) "pm" else "am"
-    return if (minutes == 0) {
-        "$hours12$suffix"
-    } else {
-        "$hours12:${minutes.toString().padStart(2, '0')}$suffix"
-    }
-}
+fun formatTimeFromFloat(time: Float): String =
+    formatTwelveHourTime(time, suffixSeparator = "", amLabel = "am", pmLabel = "pm")
 
 fun InstructorResponse.toDomain(): Instructor = Instructor(
     name = name,
