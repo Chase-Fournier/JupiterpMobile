@@ -6,11 +6,14 @@ import com.jupiterp.jupiterpmobile.domain.model.Course
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
 import com.jupiterp.jupiterpmobile.domain.model.Location
 import com.jupiterp.jupiterpmobile.domain.model.Section
+import com.jupiterp.jupiterpmobile.domain.scheduler.CourseRequest
 import com.jupiterp.jupiterpmobile.domain.scheduler.GeneratedSchedule
 import com.jupiterp.jupiterpmobile.domain.scheduler.HardConstraints
+import com.jupiterp.jupiterpmobile.domain.scheduler.OverriddenFilter
 import com.jupiterp.jupiterpmobile.domain.scheduler.RelaxationKind
 import com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleGenerator
 import com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleMetrics
+import com.jupiterp.jupiterpmobile.domain.scheduler.SectionPin
 import com.jupiterp.jupiterpmobile.domain.scheduler.SortCriterion
 import com.jupiterp.jupiterpmobile.domain.scheduler.singleRelaxations
 import com.jupiterp.jupiterpmobile.domain.scheduler.sortedByCriterion
@@ -197,6 +200,162 @@ class ScheduleGeneratorTest {
         assertTrue(result.truncated)
     }
 
+    // ---- Required / optional ----
+
+    @Test
+    fun optionalCourseIsDroppedWhenItConflicts() {
+        val required = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("M", 9f, 10f)))
+        ))
+        // The only section of the optional course overlaps the required one.
+        val optional = course("BBBB100", listOf(
+            section("BBBB100", "0101", listOf(inPerson("M", 9f, 10f)))
+        ))
+
+        val result = ScheduleGenerator.generate(
+            listOf(
+                CourseRequest(required, required = true),
+                CourseRequest(optional, required = false)
+            ),
+            HardConstraints()
+        )
+
+        // Only the required course can be placed; the optional one is left out.
+        assertEquals(1, result.schedules.size)
+        assertEquals(
+            listOf("AAAA100"),
+            result.schedules[0].selections.map { it.course.courseCode }
+        )
+    }
+
+    @Test
+    fun optionalCourseGeneratesEverySubset() {
+        val required = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("M", 9f, 10f)))
+        ))
+        val optional = course("BBBB100", listOf(
+            section("BBBB100", "0101", listOf(inPerson("Tu", 9f, 10f)))
+        ))
+
+        val result = ScheduleGenerator.generate(
+            listOf(
+                CourseRequest(required, required = true),
+                CourseRequest(optional, required = false)
+            ),
+            HardConstraints()
+        )
+
+        // Both "include the elective" and "drop it" are valid schedules.
+        assertEquals(2, result.schedules.size)
+        assertEquals(setOf(1, 2), result.schedules.map { it.selections.size }.toSet())
+    }
+
+    @Test
+    fun requiredCourseWithNoSectionsStillBlocksWhileOptionalDoesNot() {
+        val required = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("M", 9f, 10f)), openSeats = 0)
+        ))
+        val optionalFull = course("BBBB100", listOf(
+            section("BBBB100", "0101", listOf(inPerson("Tu", 9f, 10f)), openSeats = 0)
+        ))
+
+        // Open-seats filter empties both courses. The required one makes the
+        // whole run impossible; the optional one would simply be skipped.
+        val blocked = ScheduleGenerator.generate(
+            listOf(CourseRequest(required), CourseRequest(optionalFull, required = false)),
+            HardConstraints(onlyOpenSeats = true)
+        )
+        assertEquals(0, blocked.schedules.size)
+        assertEquals(listOf("AAAA100"), blocked.coursesWithNoValidSections)
+    }
+
+    // ---- Pins ----
+
+    @Test
+    fun pinBySectionRestrictsToThatSection() {
+        val courseA = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("M", 9f, 10f))),
+            section("AAAA100", "0102", listOf(inPerson("Tu", 9f, 10f)))
+        ))
+
+        val result = ScheduleGenerator.generate(
+            listOf(CourseRequest(courseA, pin = SectionPin.BySection("0102"))),
+            HardConstraints()
+        )
+
+        assertEquals(1, result.schedules.size)
+        assertEquals("0102", result.schedules[0].selections[0].section.sectionCode)
+    }
+
+    @Test
+    fun pinByInstructorKeepsOnlyThatProfessorsSections() {
+        val courseA = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("M", 9f, 10f)), instructors = listOf("Prof X")),
+            section("AAAA100", "0102", listOf(inPerson("Tu", 9f, 10f)), instructors = listOf("Prof Y"))
+        ))
+
+        val result = ScheduleGenerator.generate(
+            listOf(CourseRequest(courseA, pin = SectionPin.ByInstructor("Prof Y"))),
+            HardConstraints()
+        )
+
+        assertEquals(1, result.schedules.size)
+        assertEquals("0102", result.schedules[0].selections[0].section.sectionCode)
+    }
+
+    @Test
+    fun pinWinsOverFilterAndReportsTheOverride() {
+        // The pinned section starts at 8 AM, before the earliest-start filter.
+        val courseA = course("AAAA100", listOf(
+            section("AAAA100", "0800", listOf(inPerson("MWF", 8f, 9f)))
+        ))
+
+        val result = ScheduleGenerator.generate(
+            listOf(CourseRequest(courseA, pin = SectionPin.BySection("0800"))),
+            HardConstraints(earliestStartMinutes = 9 * 60)
+        )
+
+        // Kept despite the filter, and the override is surfaced.
+        assertEquals(1, result.schedules.size)
+        assertEquals(1, result.pinNotices.size)
+        val notice = result.pinNotices[0]
+        assertEquals("AAAA100", notice.courseCode)
+        assertEquals("0800", notice.sectionCode)
+        assertTrue(OverriddenFilter.EARLIEST_START in notice.overriddenFilters)
+    }
+
+    // ---- Minimum credits ----
+
+    @Test
+    fun minCreditsExcludesTooLightSchedules() {
+        val required = course("AAAA100", listOf(
+            section("AAAA100", "0101", listOf(inPerson("M", 9f, 10f)))
+        ), minCredits = 3)
+        val optional = course("BBBB100", listOf(
+            section("BBBB100", "0101", listOf(inPerson("Tu", 9f, 10f)))
+        ), minCredits = 3)
+
+        val result = ScheduleGenerator.generate(
+            listOf(
+                CourseRequest(required, required = true),
+                CourseRequest(optional, required = false)
+            ),
+            HardConstraints(minCredits = 6)
+        )
+
+        // The 3-credit "required only" subset falls below the floor.
+        assertEquals(1, result.schedules.size)
+        assertEquals(6, result.schedules[0].metrics.minCredits)
+    }
+
+    @Test
+    fun minCreditsListedAsRelaxation() {
+        val relaxations = singleRelaxations(HardConstraints(onlyOpenSeats = false, minCredits = 12))
+        assertEquals(1, relaxations.size)
+        val relaxation = relaxations.first { it.kind == RelaxationKind.MIN_CREDITS }
+        assertNull(relaxation.constraints.minCredits)
+    }
+
     // ---- Metrics ----
 
     @Test
@@ -333,13 +492,14 @@ class ScheduleSorterTest {
         days: Int = 3,
         earliestStart: Int? = 9 * 60,
         latestEnd: Int? = 15 * 60,
-        maxCredits: Int = 15
+        maxCredits: Int = 15,
+        sectionCount: Int = 5
     ) = GeneratedSchedule(
         selections = emptyList(),
         metrics = ScheduleMetrics(
             avgInstructorRating = rating,
             ratedSectionCount = if (rating != null) 1 else 0,
-            sectionCount = 5,
+            sectionCount = sectionCount,
             minCredits = maxCredits,
             maxCredits = maxCredits,
             daysWithClasses = days,
@@ -349,6 +509,16 @@ class ScheduleSorterTest {
             minOpenSeats = 1
         )
     )
+
+    @Test
+    fun mostClassesSortsBySectionCountDescending() {
+        val twoClasses = scheduleWith(rating = 5f, sectionCount = 2)
+        val fourClasses = scheduleWith(rating = 2f, sectionCount = 4)
+
+        val sorted = listOf(twoClasses, fourClasses).sortedByCriterion(SortCriterion.MOST_CLASSES)
+
+        assertEquals(listOf(4, 2), sorted.map { it.metrics.sectionCount })
+    }
 
     @Test
     fun bestRatingSortsDescendingWithUnratedLast() {

@@ -4,6 +4,7 @@ import com.jupiterp.jupiterpmobile.domain.model.Course
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
+import kotlin.jvm.JvmName
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -33,49 +34,98 @@ object ScheduleGenerator {
         val slots: List<MinuteSlot>
     )
 
+    private data class CourseCandidates(
+        val candidates: List<Candidate>,
+        val optional: Boolean
+    )
+
+    /** Convenience overload: every course required, no pins. */
+    @JvmName("generateFromCourses")
     fun generate(
         courses: List<Course>,
         constraints: HardConstraints,
         instructorRatings: Map<String, Float> = emptyMap(),
         maxResults: Int = DEFAULT_MAX_RESULTS
+    ): GenerationResult = generate(
+        requests = courses.map { CourseRequest(it) },
+        constraints = constraints,
+        instructorRatings = instructorRatings,
+        maxResults = maxResults
+    )
+
+    fun generate(
+        requests: List<CourseRequest>,
+        constraints: HardConstraints,
+        instructorRatings: Map<String, Float> = emptyMap(),
+        maxResults: Int = DEFAULT_MAX_RESULTS
     ): GenerationResult {
+        val pinNotices = mutableListOf<PinNotice>()
+
         // Pre-filter: drop sections that violate per-section constraints. This
-        // is where most of the search space dies.
-        val candidatesPerCourse = courses.map { course ->
-            course to course.sections.orEmpty()
-                .map { section -> Candidate(course, section, minuteSlots(section)) }
-                .filter { candidate -> candidatePasses(candidate, constraints) }
+        // is where most of the search space dies. Pinned courses skip the
+        // filter (the pin wins) but report what each pinned section overrode.
+        val perCourse: List<Pair<CourseRequest, List<Candidate>>> = requests.map { request ->
+            val candidates = pinnedSections(request)
+                .map { section -> Candidate(request.course, section, minuteSlots(section)) }
+            val kept = if (request.pin == SectionPin.None) {
+                candidates.filter { candidatePasses(it, constraints) }
+            } else {
+                candidates.onEach { candidate ->
+                    val overridden = overriddenFilters(candidate, constraints)
+                    if (overridden.isNotEmpty()) {
+                        pinNotices += PinNotice(
+                            request.course.courseCode,
+                            candidate.section.sectionCode,
+                            overridden
+                        )
+                    }
+                }
+            }
+            request to kept
         }
 
-        val coursesWithoutSections = candidatesPerCourse
-            .filter { (_, candidates) -> candidates.isEmpty() }
-            .map { (course, _) -> course.courseCode }
-        if (courses.isEmpty() || coursesWithoutSections.isNotEmpty()) {
+        // Only required courses make generation impossible when they have no
+        // valid sections; optional courses with none are simply dropped.
+        val coursesWithoutSections = perCourse
+            .filter { (request, candidates) -> request.required && candidates.isEmpty() }
+            .map { (request, _) -> request.course.courseCode }
+        if (requests.isEmpty() || coursesWithoutSections.isNotEmpty()) {
             return GenerationResult(
                 schedules = emptyList(),
                 truncated = false,
-                coursesWithNoValidSections = coursesWithoutSections
+                coursesWithNoValidSections = coursesWithoutSections,
+                pinNotices = pinNotices.distinct()
             )
         }
 
         // Fail-first ordering: courses with the fewest candidates go first so
         // dead branches are pruned as early as possible
-        val ordered = candidatesPerCourse.map { it.second }.sortedBy { it.size }
+        val ordered = perCourse
+            .filter { (_, candidates) -> candidates.isNotEmpty() }
+            .map { (request, candidates) -> CourseCandidates(candidates, optional = !request.required) }
+            .sortedBy { it.candidates.size }
 
         val found = mutableListOf<List<Candidate>>()
         val chosen = ArrayList<Candidate>(ordered.size)
         val placedSlots = mutableListOf<MinuteSlot>()
         var nodes = 0
         var truncated = false
+        val minCredits = constraints.minCredits
 
         fun dfs(courseIndex: Int) {
             if (truncated) return
             if (courseIndex == ordered.size) {
-                found.add(chosen.toList())
-                if (found.size >= maxResults) truncated = true
+                // Skip the empty schedule (everything optional dropped) and any
+                // schedule below the credit floor.
+                val creditsOk = minCredits == null || chosen.sumOf { it.course.minCredits } >= minCredits
+                if (chosen.isNotEmpty() && creditsOk) {
+                    found.add(chosen.toList())
+                    if (found.size >= maxResults) truncated = true
+                }
                 return
             }
-            for (candidate in ordered[courseIndex]) {
+            val courseCandidates = ordered[courseIndex]
+            for (candidate in courseCandidates.candidates) {
                 if (++nodes > MAX_NODES) {
                     truncated = true
                     return
@@ -93,11 +143,17 @@ object ScheduleGenerator {
                 repeat(candidate.slots.size) { placedSlots.removeAt(placedSlots.lastIndex) }
                 if (truncated) return
             }
+            // Optional courses can be left out. Explore the skip branch after
+            // the include branches so fuller schedules are found (and kept on
+            // truncation) first.
+            if (courseCandidates.optional) {
+                dfs(courseIndex + 1)
+            }
         }
         dfs(0)
 
         // Present selections in the caller's course order, not search order
-        val orderIndex = courses.withIndex().associate { (i, course) -> course.courseCode to i }
+        val orderIndex = requests.withIndex().associate { (i, request) -> request.course.courseCode to i }
         val schedules = found.map { combo ->
             val selections = combo
                 .sortedBy { orderIndex[it.course.courseCode] }
@@ -106,7 +162,39 @@ object ScheduleGenerator {
                 }
             GeneratedSchedule(selections, computeMetrics(combo, instructorRatings))
         }
-        return GenerationResult(schedules, truncated, emptyList())
+        return GenerationResult(schedules, truncated, emptyList(), pinNotices.distinct())
+    }
+
+    private fun pinnedSections(request: CourseRequest): List<Section> {
+        val sections = request.course.sections.orEmpty()
+        return when (val pin = request.pin) {
+            SectionPin.None -> sections
+            is SectionPin.BySection -> sections.filter { it.sectionCode == pin.sectionCode }
+            is SectionPin.ByInstructor -> sections.filter { pin.name in it.instructors }
+        }
+    }
+
+    /** Per-section filters a pinned candidate violates but is kept in spite of. */
+    private fun overriddenFilters(
+        candidate: Candidate,
+        constraints: HardConstraints
+    ): List<OverriddenFilter> {
+        val result = mutableListOf<OverriddenFilter>()
+        if (constraints.onlyOpenSeats && candidate.section.openSeats <= 0) {
+            result += OverriddenFilter.OPEN_SEATS
+        }
+        val earliest = constraints.earliestStartMinutes
+        if (earliest != null && candidate.slots.any { it.start < earliest }) {
+            result += OverriddenFilter.EARLIEST_START
+        }
+        val latest = constraints.latestEndMinutes
+        if (latest != null && candidate.slots.any { it.end > latest }) {
+            result += OverriddenFilter.LATEST_END
+        }
+        if (candidate.slots.any { it.day in constraints.daysOff }) {
+            result += OverriddenFilter.DAY_OFF
+        }
+        return result
     }
 
     private fun minuteSlots(section: Section): List<MinuteSlot> =

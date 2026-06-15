@@ -1,5 +1,6 @@
 package com.jupiterp.jupiterpmobile.domain.scheduler
 
+import com.jupiterp.jupiterpmobile.domain.model.Course
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 
@@ -12,8 +13,48 @@ data class HardConstraints(
     val latestEndMinutes: Int? = null,
     val daysOff: Set<DayOfWeek> = emptySet(),
     val onlyOpenSeats: Boolean = true,
-    val minGapMinutes: Int = 0
+    val minGapMinutes: Int = 0,
+    /** Drop schedules whose guaranteed credit total is below this floor. */
+    val minCredits: Int? = null
 )
+
+/**
+ * One course to schedule, plus how strictly to place it.
+ *
+ * - [required] courses appear in every generated schedule; optional ones are
+ *   included only when they fit and may be dropped.
+ * - [pin] narrows the course to a single section or to one professor's
+ *   sections, and overrides the per-section filters in [HardConstraints]
+ *   (the override is surfaced as a [PinNotice]).
+ */
+data class CourseRequest(
+    val course: Course,
+    val required: Boolean = true,
+    val pin: SectionPin = SectionPin.None
+)
+
+sealed interface SectionPin {
+    data object None : SectionPin
+    data class BySection(val sectionCode: String) : SectionPin
+    data class ByInstructor(val name: String) : SectionPin
+}
+
+/**
+ * Raised when a pinned section was kept despite violating one or more active
+ * per-section filters (the pin wins, but the user is told what it overrode).
+ */
+data class PinNotice(
+    val courseCode: String,
+    val sectionCode: String,
+    val overriddenFilters: List<OverriddenFilter>
+)
+
+enum class OverriddenFilter {
+    EARLIEST_START,
+    LATEST_END,
+    DAY_OFF,
+    OPEN_SEATS
+}
 
 /**
  * Metrics computed once per generated schedule so re-sorting never requires
@@ -43,7 +84,9 @@ data class GenerationResult(
     /** True when the search stopped at the result or node cap; more schedules may exist. */
     val truncated: Boolean,
     /** Course codes that had zero sections passing the constraints (generation is impossible). */
-    val coursesWithNoValidSections: List<String>
+    val coursesWithNoValidSections: List<String>,
+    /** Pinned sections that were forced in despite violating active filters. */
+    val pinNotices: List<PinNotice> = emptyList()
 )
 
 /**
@@ -61,7 +104,8 @@ enum class RelaxationKind {
     LATEST_END,
     DAY_OFF,
     OPEN_SEATS,
-    MIN_GAP
+    MIN_GAP,
+    MIN_CREDITS
 }
 
 /** Every constraint set that differs from [constraints] by removing exactly one restriction. */
@@ -96,6 +140,12 @@ fun singleRelaxations(constraints: HardConstraints): List<Relaxation> {
         relaxations += Relaxation(
             RelaxationKind.MIN_GAP,
             constraints = constraints.copy(minGapMinutes = 0)
+        )
+    }
+    if (constraints.minCredits != null) {
+        relaxations += Relaxation(
+            RelaxationKind.MIN_CREDITS,
+            constraints = constraints.copy(minCredits = null)
         )
     }
     return relaxations

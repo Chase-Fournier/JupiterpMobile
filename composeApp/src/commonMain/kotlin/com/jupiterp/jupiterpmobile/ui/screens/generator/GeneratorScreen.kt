@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
@@ -28,20 +29,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jupiterp.jupiterpmobile.data.repository.ScheduleRepository
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
+import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.scheduler.GeneratedSchedule
 import com.jupiterp.jupiterpmobile.domain.scheduler.HardConstraints
+import com.jupiterp.jupiterpmobile.domain.scheduler.OverriddenFilter
+import com.jupiterp.jupiterpmobile.domain.scheduler.PinNotice
 import com.jupiterp.jupiterpmobile.domain.scheduler.RelaxationKind
 import com.jupiterp.jupiterpmobile.domain.scheduler.SortCriterion
 import com.jupiterp.jupiterpmobile.domain.scheduler.sortedByCriterion
 import com.jupiterp.jupiterpmobile.ui.components.FilterChip
 import com.jupiterp.jupiterpmobile.ui.components.MeetingInfo
 import com.jupiterp.jupiterpmobile.ui.components.RatingChip
+import com.jupiterp.jupiterpmobile.ui.components.SectionRow
 import com.jupiterp.jupiterpmobile.ui.components.SolarSystemLoader
 import com.jupiterp.jupiterpmobile.ui.components.WeeklyScheduleView
 import com.jupiterp.ui.theme.JupiterpTheme
@@ -62,6 +68,7 @@ fun GeneratorScreen(
     val constraints by viewModel.constraints.collectAsState()
     val courseQuery by viewModel.courseQuery.collectAsState()
     val courseSuggestions by viewModel.courseSuggestions.collectAsState()
+    val courseSections by viewModel.courseSections.collectAsState()
     val sortCriterion by viewModel.sortCriterion.collectAsState()
     val currentScheduleSize by viewModel.currentScheduleSize.collectAsState()
 
@@ -157,6 +164,7 @@ fun GeneratorScreen(
                         ResultsContent(
                             schedules = s.schedules,
                             truncated = s.truncated,
+                            pinNotices = s.pinNotices,
                             sortCriterion = sortCriterion,
                             onSortChange = viewModel::setSortCriterion,
                             currentScheduleSize = currentScheduleSize,
@@ -176,6 +184,7 @@ fun GeneratorScreen(
                         constraints = constraints,
                         courseQuery = courseQuery,
                         courseSuggestions = courseSuggestions,
+                        courseSections = courseSections,
                         currentScheduleSize = currentScheduleSize,
                         noSchedules = s as? GeneratorViewModel.GenerationState.NoSchedules,
                         failure = s as? GeneratorViewModel.GenerationState.Failed,
@@ -197,6 +206,7 @@ private fun RequirementsContent(
     constraints: HardConstraints,
     courseQuery: String,
     courseSuggestions: List<GeneratorViewModel.CourseSuggestion>,
+    courseSections: Map<String, List<Section>>,
     currentScheduleSize: Int,
     noSchedules: GeneratorViewModel.GenerationState.NoSchedules?,
     failure: GeneratorViewModel.GenerationState.Failed?,
@@ -248,47 +258,23 @@ private fun RequirementsContent(
 
             if (requirements.isEmpty()) {
                 Text(
-                    "Add the courses you need to take. The generator finds every section combination with no time conflicts.",
+                    "Add the courses you need to take. Mark each as required or optional, and pin a specific section or professor to force it onto every schedule.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = JupiterpTheme.extendedColors.textSecondary
                 )
             }
 
             requirements.forEach { requirement ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            requirement.courseCode,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = JupiterpTheme.extendedColors.orange
-                        )
-                        Text(
-                            requirement.courseName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
-                        )
-                        IconButton(
-                            onClick = { viewModel.removeCourse(requirement.courseCode) },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Close, "Remove",
-                                modifier = Modifier.size(18.dp),
-                                tint = JupiterpTheme.extendedColors.textSecondary
-                            )
-                        }
-                    }
-                }
+                RequirementCard(
+                    requirement = requirement,
+                    sections = courseSections[requirement.courseCode],
+                    onToggleRequired = { viewModel.toggleRequired(requirement.courseCode) },
+                    onLoadSections = { viewModel.loadSectionsFor(requirement.courseCode) },
+                    onPinSection = { viewModel.pinSection(requirement.courseCode, it) },
+                    onPinInstructor = { viewModel.pinInstructor(requirement.courseCode, it) },
+                    onClearPin = { viewModel.clearPin(requirement.courseCode) },
+                    onRemove = { viewModel.removeCourse(requirement.courseCode) }
+                )
             }
 
             if (currentScheduleSize > 0) {
@@ -399,6 +385,213 @@ private fun RequirementsContent(
     }
 }
 
+/** One course in the requirement list: required/optional toggle plus a section/professor pin. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RequirementCard(
+    requirement: GeneratorViewModel.RequirementItem,
+    sections: List<Section>?,
+    onToggleRequired: () -> Unit,
+    onLoadSections: () -> Unit,
+    onPinSection: (String) -> Unit,
+    onPinInstructor: (String) -> Unit,
+    onClearPin: () -> Unit,
+    onRemove: () -> Unit
+) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    if (showPicker) {
+        SectionPinDialog(
+            requirement = requirement,
+            sections = sections,
+            onPinSection = { onPinSection(it); showPicker = false },
+            onPinInstructor = { onPinInstructor(it); showPicker = false },
+            onClearPin = { onClearPin(); showPicker = false },
+            onDismiss = { showPicker = false }
+        )
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 8.dp, end = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    requirement.courseCode,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = JupiterpTheme.extendedColors.orange
+                )
+                Text(
+                    requirement.courseName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
+                )
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Close, "Remove",
+                        modifier = Modifier.size(18.dp),
+                        tint = JupiterpTheme.extendedColors.textSecondary
+                    )
+                }
+            }
+
+            FlowRow(
+                modifier = Modifier.padding(end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ChoicePill("Required", requirement.required) {
+                    if (!requirement.required) onToggleRequired()
+                }
+                ChoicePill("Optional", !requirement.required) {
+                    if (requirement.required) onToggleRequired()
+                }
+
+                val pinLabel = requirement.pinLabel
+                if (pinLabel != null) {
+                    // Selected FilterChip shows an ✕ — tapping clears the pin.
+                    FilterChip(
+                        label = pinLabel,
+                        selected = true,
+                        leadingIcon = Icons.Outlined.PushPin,
+                        onClick = onClearPin
+                    )
+                } else {
+                    FilterChip(
+                        label = "Pin section/prof",
+                        selected = false,
+                        leadingIcon = Icons.Outlined.PushPin,
+                        onClick = { onLoadSections(); showPicker = true }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Compact two-state pill used for the required/optional toggle. */
+@Composable
+private fun ChoicePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) JupiterpTheme.extendedColors.orange else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+/** Picker to force a course to one professor or one specific section. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SectionPinDialog(
+    requirement: GeneratorViewModel.RequirementItem,
+    sections: List<Section>?,
+    onPinSection: (String) -> Unit,
+    onPinInstructor: (String) -> Unit,
+    onClearPin: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text("Force ${requirement.courseCode}", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (sections == null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = JupiterpTheme.extendedColors.orange,
+                            strokeWidth = 3.dp
+                        )
+                    }
+                } else {
+                    ChoicePill(
+                        label = "Any section",
+                        selected = requirement.pinnedSectionCode == null && requirement.pinnedInstructor == null,
+                        onClick = onClearPin
+                    )
+
+                    val instructors = sections
+                        .flatMap { it.instructors }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                    if (instructors.isNotEmpty()) {
+                        Text(
+                            "By professor",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            instructors.forEach { name ->
+                                FilterChip(
+                                    label = name,
+                                    selected = requirement.pinnedInstructor == name,
+                                    onClick = { onPinInstructor(name) }
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        "Specific section",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (sections.isEmpty()) {
+                        Text(
+                            "No sections available for this course.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JupiterpTheme.extendedColors.textSecondary
+                        )
+                    } else {
+                        sections.forEach { section ->
+                            SectionRow(
+                                section = section,
+                                isSelected = requirement.pinnedSectionCode == section.sectionCode,
+                                instructorRating = null,
+                                onToggle = { onPinSection(section.sectionCode) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", color = JupiterpTheme.extendedColors.orange)
+            }
+        }
+    )
+}
+
 @Composable
 private fun ConstraintsCard(
     constraints: HardConstraints,
@@ -474,6 +667,12 @@ private fun ConstraintsCard(
                 )
             }
 
+            // Minimum credits
+            CreditConstraintRow(
+                minCredits = constraints.minCredits,
+                onChange = viewModel::setMinCredits
+            )
+
             // Minimum gap
             Text(
                 "Break between classes",
@@ -528,6 +727,45 @@ private fun TimeConstraintRow(
                 onValueChange = { hours -> onChange(((hours * 2).roundToInt() * 30)) },
                 valueRange = range,
                 steps = ((range.endInclusive - range.start) * 2).toInt() - 1,
+                colors = SliderDefaults.colors(
+                    thumbColor = JupiterpTheme.extendedColors.orange,
+                    activeTrackColor = JupiterpTheme.extendedColors.orange
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun CreditConstraintRow(
+    minCredits: Int?,
+    onChange: (Int?) -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (minCredits != null) "At least $minCredits credits" else "Minimum credits",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Switch(
+                checked = minCredits != null,
+                onCheckedChange = { enabled -> onChange(if (enabled) 12 else null) },
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = JupiterpTheme.extendedColors.orange
+                )
+            )
+        }
+        if (minCredits != null) {
+            Slider(
+                value = minCredits.toFloat(),
+                onValueChange = { onChange(it.roundToInt()) },
+                valueRange = 1f..21f,
+                steps = 19,
                 colors = SliderDefaults.colors(
                     thumbColor = JupiterpTheme.extendedColors.orange,
                     activeTrackColor = JupiterpTheme.extendedColors.orange
@@ -627,16 +865,68 @@ private fun hintLabel(
     RelaxationKind.OPEN_SEATS -> "Include full sections"
 
     RelaxationKind.MIN_GAP -> "Remove the break-between-classes requirement"
+
+    RelaxationKind.MIN_CREDITS ->
+        constraints.minCredits
+            ?.let { "Lower the $it-credit minimum" }
+            ?: "Remove the minimum-credits requirement"
 }
 
 // ---------------------------------------------------------------------------
 // Results list
 // ---------------------------------------------------------------------------
 
+/** Heads-up that one or more pinned sections were forced in past an active filter. */
+@Composable
+private fun PinNoticeBanner(
+    notices: List<PinNotice>,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = JupiterpTheme.extendedColors.warning.copy(alpha = 0.12f)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Outlined.PushPin, null,
+                modifier = Modifier.size(18.dp),
+                tint = JupiterpTheme.extendedColors.orange
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "Pinned despite your filters",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                notices.forEach { notice ->
+                    Text(
+                        "${notice.courseCode}-${notice.sectionCode} overrides " +
+                            notice.overriddenFilters.joinToString(", ") { filterLabel(it) },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JupiterpTheme.extendedColors.textSecondary
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun filterLabel(filter: OverriddenFilter): String = when (filter) {
+    OverriddenFilter.EARLIEST_START -> "your earliest-start limit"
+    OverriddenFilter.LATEST_END -> "your latest-end limit"
+    OverriddenFilter.DAY_OFF -> "a day off"
+    OverriddenFilter.OPEN_SEATS -> "open-seats only"
+}
+
 @Composable
 private fun ResultsContent(
     schedules: List<GeneratedSchedule>,
     truncated: Boolean,
+    pinNotices: List<PinNotice>,
     sortCriterion: SortCriterion,
     onSortChange: (SortCriterion) -> Unit,
     currentScheduleSize: Int,
@@ -664,6 +954,13 @@ private fun ResultsContent(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (pinNotices.isNotEmpty()) {
+            PinNoticeBanner(
+                notices = pinNotices,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
+
         Text(
             if (truncated) "Showing the first ${sorted.size} schedules"
             else "${sorted.size} schedule${if (sorted.size != 1) "s" else ""} found",

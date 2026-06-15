@@ -6,10 +6,14 @@ import com.jupiterp.jupiterpmobile.data.repository.CourseRepository
 import com.jupiterp.jupiterpmobile.data.repository.ScheduleRepository
 import com.jupiterp.jupiterpmobile.domain.model.Course
 import com.jupiterp.jupiterpmobile.domain.model.DayOfWeek
+import com.jupiterp.jupiterpmobile.domain.model.Section
+import com.jupiterp.jupiterpmobile.domain.scheduler.CourseRequest
 import com.jupiterp.jupiterpmobile.domain.scheduler.GeneratedSchedule
 import com.jupiterp.jupiterpmobile.domain.scheduler.HardConstraints
+import com.jupiterp.jupiterpmobile.domain.scheduler.PinNotice
 import com.jupiterp.jupiterpmobile.domain.scheduler.Relaxation
 import com.jupiterp.jupiterpmobile.domain.scheduler.ScheduleGenerator
+import com.jupiterp.jupiterpmobile.domain.scheduler.SectionPin
 import com.jupiterp.jupiterpmobile.domain.scheduler.SortCriterion
 import com.jupiterp.jupiterpmobile.domain.scheduler.singleRelaxations
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +39,19 @@ class GeneratorViewModel(
     private val scheduleRepository: ScheduleRepository
 ) : ViewModel() {
 
-    data class RequirementItem(val courseCode: String, val courseName: String)
+    data class RequirementItem(
+        val courseCode: String,
+        val courseName: String,
+        /** Required courses appear in every schedule; optional ones fill in when they fit. */
+        val required: Boolean = true,
+        /** Pin to one specific section (mutually exclusive with [pinnedInstructor]). */
+        val pinnedSectionCode: String? = null,
+        /** Pin to any section taught by this professor. */
+        val pinnedInstructor: String? = null
+    ) {
+        val pinLabel: String?
+            get() = pinnedSectionCode?.let { "Section $it" } ?: pinnedInstructor
+    }
 
     data class CourseSuggestion(val courseCode: String, val courseName: String)
 
@@ -52,7 +68,9 @@ class GeneratorViewModel(
             val schedules: List<GeneratedSchedule>,
             val truncated: Boolean,
             /** Per-instructor average ratings, keyed by name, for detail display. */
-            val instructorRatings: Map<String, Float>
+            val instructorRatings: Map<String, Float>,
+            /** Pinned sections kept despite violating a filter; shown as a heads-up. */
+            val pinNotices: List<PinNotice> = emptyList()
         ) : GenerationState
 
         data class NoSchedules(
@@ -81,6 +99,10 @@ class GeneratorViewModel(
 
     private val _courseSuggestions = MutableStateFlow<List<CourseSuggestion>>(emptyList())
     val courseSuggestions: StateFlow<List<CourseSuggestion>> = _courseSuggestions.asStateFlow()
+
+    // Section lists fetched on demand for the pin picker, keyed by course code.
+    private val _courseSections = MutableStateFlow<Map<String, List<Section>>>(emptyMap())
+    val courseSections: StateFlow<Map<String, List<Section>>> = _courseSections.asStateFlow()
 
     val currentScheduleSize: StateFlow<Int> = scheduleRepository.currentSelections
         .map { it.size }
@@ -126,6 +148,52 @@ class GeneratorViewModel(
         clearStaleOutcome()
     }
 
+    /** Flip a course between required (in every schedule) and optional (fills in when it fits). */
+    fun toggleRequired(courseCode: String) {
+        updateRequirement(courseCode) { it.copy(required = !it.required) }
+    }
+
+    /** Force this exact section; clears any professor pin. */
+    fun pinSection(courseCode: String, sectionCode: String) {
+        updateRequirement(courseCode) {
+            it.copy(pinnedSectionCode = sectionCode, pinnedInstructor = null)
+        }
+    }
+
+    /** Force any section taught by this professor; clears any section pin. */
+    fun pinInstructor(courseCode: String, name: String) {
+        updateRequirement(courseCode) {
+            it.copy(pinnedInstructor = name, pinnedSectionCode = null)
+        }
+    }
+
+    fun clearPin(courseCode: String) {
+        updateRequirement(courseCode) {
+            it.copy(pinnedSectionCode = null, pinnedInstructor = null)
+        }
+    }
+
+    private fun updateRequirement(courseCode: String, transform: (RequirementItem) -> RequirementItem) {
+        _requirements.update { current ->
+            current.map { if (it.courseCode == courseCode) transform(it) else it }
+        }
+        clearStaleOutcome()
+    }
+
+    /** Fetch a course's sections once for the pin picker; cached after the first load. */
+    fun loadSectionsFor(courseCode: String) {
+        if (_courseSections.value.containsKey(courseCode)) return
+        viewModelScope.launch {
+            courseRepository.getCoursesByCodes(listOf(courseCode))
+                .onSuccess { courses ->
+                    val sections = courses
+                        .firstOrNull { it.courseCode == courseCode }
+                        ?.sections.orEmpty()
+                    _courseSections.update { it + (courseCode to sections) }
+                }
+        }
+    }
+
     /** Seed the requirement list with the courses already in the planner. */
     fun seedFromCurrentSchedule() {
         val current = scheduleRepository.currentSelections.value
@@ -168,6 +236,11 @@ class GeneratorViewModel(
         clearStaleOutcome()
     }
 
+    fun setMinCredits(credits: Int?) {
+        _constraints.update { it.copy(minCredits = credits) }
+        clearStaleOutcome()
+    }
+
     /**
      * No-result hints and error banners describe the inputs that produced
      * them; once the user edits anything, they're stale — drop them.
@@ -181,6 +254,16 @@ class GeneratorViewModel(
     }
 
     // ---- Generation ----
+
+    private fun RequirementItem.toRequest(course: Course) = CourseRequest(
+        course = course,
+        required = required,
+        pin = when {
+            pinnedSectionCode != null -> SectionPin.BySection(pinnedSectionCode)
+            pinnedInstructor != null -> SectionPin.ByInstructor(pinnedInstructor)
+            else -> SectionPin.None
+        }
+    )
 
     fun generate() {
         val requirementList = _requirements.value
@@ -209,20 +292,27 @@ class GeneratorViewModel(
                 )
                 return@launch
             }
-            val ordered = requirementList.mapNotNull { byCode[it.courseCode] }
+            val requests = requirementList.mapNotNull { item ->
+                byCode[item.courseCode]?.let { course -> item.toRequest(course) }
+            }
 
-            val instructorNames = ordered
-                .flatMap { it.sections.orEmpty() }
+            val instructorNames = requests
+                .flatMap { it.course.sections.orEmpty() }
                 .flatMap { it.instructors }
             val ratings = courseRepository.getInstructorRatings(instructorNames)
 
             val result = withContext(Dispatchers.Default) {
-                ScheduleGenerator.generate(ordered, constraints, ratings)
+                ScheduleGenerator.generate(requests, constraints, ratings)
             }
 
             if (result.schedules.isNotEmpty()) {
-                _generationState.value =
-                    GenerationState.Done(result.schedules, result.truncated, ratings)
+                // With optional courses in play, lead with the fullest schedules.
+                if (requests.any { !it.required }) {
+                    _sortCriterion.value = SortCriterion.MOST_CLASSES
+                }
+                _generationState.value = GenerationState.Done(
+                    result.schedules, result.truncated, ratings, result.pinNotices
+                )
                 return@launch
             }
 
@@ -233,7 +323,7 @@ class GeneratorViewModel(
             val hints = withContext(Dispatchers.Default) {
                 singleRelaxations(constraints).mapNotNull { relaxation ->
                     val rerun = ScheduleGenerator.generate(
-                        ordered, relaxation.constraints, ratings, maxResults = 50
+                        requests, relaxation.constraints, ratings, maxResults = 50
                     )
                     if (rerun.schedules.isEmpty()) null
                     else RelaxationHint(relaxation, rerun.schedules.size, rerun.truncated)

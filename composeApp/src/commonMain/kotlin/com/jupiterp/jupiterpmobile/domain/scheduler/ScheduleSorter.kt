@@ -5,6 +5,7 @@ package com.jupiterp.jupiterpmobile.domain.scheduler
  * switching criteria is pure comparator work — no regeneration.
  */
 enum class SortCriterion(val label: String) {
+    MOST_CLASSES("Most classes"),
     BEST_RATING("Top rated"),
     MOST_COMPACT("Fewest gaps"),
     FEWEST_DAYS("Fewest days"),
@@ -20,6 +21,11 @@ fun List<GeneratedSchedule>.sortedByCriterion(criterion: SortCriterion): List<Ge
 private fun GeneratedSchedule.ratingOrUnrated(): Float = metrics.avgInstructorRating ?: -1f
 
 private fun SortCriterion.comparator(): Comparator<GeneratedSchedule> = when (this) {
+    SortCriterion.MOST_CLASSES ->
+        compareByDescending<GeneratedSchedule> { it.metrics.sectionCount }
+            .thenByDescending { it.ratingOrUnrated() }
+            .thenBy { it.metrics.totalGapMinutes }
+
     SortCriterion.BEST_RATING ->
         compareByDescending<GeneratedSchedule> { it.ratingOrUnrated() }
             .thenBy { it.metrics.totalGapMinutes }
