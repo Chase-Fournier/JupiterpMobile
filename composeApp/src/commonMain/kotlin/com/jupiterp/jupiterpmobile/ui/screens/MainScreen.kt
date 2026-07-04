@@ -78,6 +78,7 @@ fun MainScreen(
     val savedSchedules by viewModel.savedSchedules.collectAsState()
     val snackbarMessage by viewModel.snackbarMessage.collectAsState()
     val instructorSuggestions by viewModel.instructorSuggestions.collectAsState()
+    val showSavedSchedulesRequest by viewModel.showSavedSchedulesRequest.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val searchFocusRequester = remember { FocusRequester() }
@@ -95,6 +96,15 @@ fun MainScreen(
         snackbarMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
             viewModel.dismissSnackbar()
+        }
+    }
+
+    // A schedule imported from a shared link was just saved; open the sheet
+    // that lists saved schedules so the user can switch to it.
+    LaunchedEffect(showSavedSchedulesRequest) {
+        if (showSavedSchedulesRequest) {
+            showSettings = true
+            viewModel.consumeSavedSchedulesRequest()
         }
     }
 

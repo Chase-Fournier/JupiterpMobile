@@ -15,6 +15,8 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
 import com.jupiterp.jupiterpmobile.addToCalendar
+import com.jupiterp.jupiterpmobile.deeplink.DeepLinkHandler
+import com.jupiterp.jupiterpmobile.deeplink.ShareLink
 import com.jupiterp.jupiterpmobile.hasKnownSemesterDates
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -91,6 +93,11 @@ class MainViewModel(
     private val _isSearchFocused = MutableStateFlow(false)
     val isSearchFocused: StateFlow<Boolean> = _isSearchFocused.asStateFlow()
 
+    // Set after a shared schedule is imported from a deep link; asks the UI to
+    // open the saved-schedules sheet so the user can switch to it.
+    private val _showSavedSchedulesRequest = MutableStateFlow(false)
+    val showSavedSchedulesRequest: StateFlow<Boolean> = _showSavedSchedulesRequest.asStateFlow()
+
     // Instructor ratings cache
     private val _instructorRatings = MutableStateFlow<Map<String, Instructor>>(emptyMap())
     val instructorRatings: StateFlow<Map<String, Instructor>> = _instructorRatings.asStateFlow()
@@ -125,6 +132,74 @@ class MainViewModel(
         viewModelScope.launch {
             scheduleRepository.errors.collect { showSnackbar(it) }
         }
+        viewModelScope.launch {
+            DeepLinkHandler.pendingUrl.collect { url ->
+                if (url != null) {
+                    DeepLinkHandler.consume()
+                    importSharedSchedule(url)
+                }
+            }
+        }
+    }
+
+    /**
+     * Import a schedule shared via a jupiterp.com link (`?s=2~CMSC4Aq8z...`).
+     * The decoded sections are re-fetched from the API, saved as a new named
+     * schedule ("Shared schedule", numbered if taken), and the saved-schedules
+     * sheet is opened so the user can switch to it. The user's current
+     * schedule is left untouched.
+     */
+    private fun importSharedSchedule(url: String) {
+        val token = ShareLink.extractShareToken(url) ?: return
+        val pairs = ShareLink.decodeSchedule(token)
+        if (pairs.isEmpty()) {
+            showSnackbar("This schedule link isn't valid")
+            return
+        }
+
+        viewModelScope.launch {
+            courseRepository.getCoursesByCodes(pairs.map { it.courseCode }.distinct())
+                .onSuccess { courses ->
+                    val selections = ShareLink.buildSharedSelections(
+                        pairs,
+                        courses.associateBy { it.courseCode }
+                    )
+                    if (selections.isEmpty()) {
+                        showSnackbar("The shared schedule's sections are no longer offered")
+                        return@onSuccess
+                    }
+
+                    // Saving before the stored schedules finish loading would
+                    // wipe them (see awaitInitialLoad), so wait it out.
+                    scheduleRepository.awaitInitialLoad()
+                    val name = ScheduleRepository.uniqueScheduleName(
+                        "Shared schedule",
+                        scheduleRepository.savedSchedules.value.map { it.name }
+                    )
+                    scheduleRepository.saveSchedule(name, selections)
+
+                    val skipped = pairs.size - selections.size
+                    showSnackbar(
+                        if (skipped > 0) {
+                            "Saved \"$name\" — $skipped section(s) no longer offered"
+                        } else {
+                            "Saved shared schedule as \"$name\""
+                        }
+                    )
+                    _showSavedSchedulesRequest.value = true
+                }
+                .onFailure {
+                    showSnackbar("Couldn't load the shared schedule — check your connection and reopen the link")
+                }
+        }
+    }
+
+    /**
+     * Called by the UI once it has opened the saved-schedules sheet in
+     * response to [showSavedSchedulesRequest].
+     */
+    fun consumeSavedSchedulesRequest() {
+        _showSavedSchedulesRequest.value = false
     }
 
     /**

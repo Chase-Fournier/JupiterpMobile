@@ -21,6 +21,7 @@ Contact @Chase-Fournier to get into the beta tests on IOS and Android
 - **Schedule Builder** — Visual weekly grid (8am–10pm) with pastel color-coded blocks and automatic conflict detection
 - **Calendar Export** — Adds recurring weekly events directly to the device calendar (EventKit on iOS, calendar app import on Android)
 - **Save / Load Schedules** — Save multiple named schedules and restore them later
+- **Shared Schedule Links** — Opening a `jupiterp.com/?s=…` share link (or `jupiterp://`) on a device with the app installed imports the schedule as a new saved schedule; see [docs/DEEP_LINKS.md](docs/DEEP_LINKS.md)
 - **Single-Screen Design** — Schedule is always visible; search panel slides up from the bottom
 
 ## Architecture

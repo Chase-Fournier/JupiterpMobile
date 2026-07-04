@@ -9,6 +9,7 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
 import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
 import com.jupiterp.jupiterpmobile.domain.model.Section
 import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,6 +49,9 @@ class ScheduleRepository(
     @Volatile
     private var userMutated = false
 
+    // Completed (successfully or not) once the init load has finished.
+    private val initialLoad = CompletableDeferred<Unit>()
+
     init {
         // Load saved data on init
         scope.launch {
@@ -64,8 +68,21 @@ class ScheduleRepository(
                 }
             } catch (e: Exception) {
                 _errors.tryEmit("Couldn't load your saved schedules")
+            } finally {
+                initialLoad.complete(Unit)
             }
         }
+    }
+
+    /**
+     * Suspend until the init load from storage has finished. Programmatic
+     * writes that race app startup (e.g. importing a schedule from a deep
+     * link) must wait on this: a save issued before the load completes marks
+     * the repository user-mutated, which discards the not-yet-loaded stored
+     * schedules and then overwrites them on disk.
+     */
+    suspend fun awaitInitialLoad() {
+        initialLoad.await()
     }
 
     /**
@@ -326,6 +343,23 @@ class ScheduleRepository(
 
     companion object {
         const val PLACEHOLDER_SECTION_CODE = "---"
+
+        /**
+         * The first name of the form `base`, `base 2`, `base 3`, … not taken
+         * by an existing schedule (mirrors the web planner's naming when it
+         * imports a shared schedule).
+         */
+        fun uniqueScheduleName(base: String, takenNames: Collection<String>): String {
+            val taken = takenNames.toSet()
+            if (base !in taken) {
+                return base
+            }
+            var n = 2
+            while ("$base $n" in taken) {
+                n++
+            }
+            return "$base $n"
+        }
 
         private val weekdays = listOf(
             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
