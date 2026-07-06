@@ -1,0 +1,1225 @@
+From d4167e5b11ea20ecf6205bfaaae873eacf9481ca Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 4 Jul 2026 15:31:28 +0000
+Subject: [PATCH] Add deep links that import shared schedules from jupiterp.com
+ links
+
+The Jupiterp web planner (atcupps/Jupiterp#933) shares schedules as
+https://jupiterp.com/?s=2~<packed segments>. Opening one of those links
+on a device with this app now opens the app and imports the schedule:
+
+- Port the web ShareLink codec to commonMain (schema v1 literal and v2
+  base62-packed [number:10|suffix:5|section:14] segments), including
+  cross-implementation test vectors computed with the web ShareLink.ts
+  so the two clients can never drift apart silently.
+- On open, decode the token, re-fetch the courses from the API, save
+  the result as a new "Shared schedule" (numbered when taken), and open
+  the saved-schedules sheet so the user can switch to it. The user's
+  current schedule is never replaced; stale sections are skipped with a
+  notice, and network failures surface a retry hint.
+- Android: autoVerify App Links intent filter for jupiterp.com and
+  www.jupiterp.com plus a jupiterp:// fallback scheme; singleTask
+  MainActivity routes cold-start and onNewIntent URLs into common code.
+- iOS: Universal Links via an Associated Domains entitlement plus a
+  jupiterp:// URL scheme, both funneled through onOpenURL /
+  onContinueUserActivity into the shared DeepLinkHandler.
+- ScheduleRepository: add awaitInitialLoad() so a deep link import at
+  cold start cannot clobber schedules still loading from storage.
+- docs/DEEP_LINKS.md documents the assetlinks.json / AASA files that
+  jupiterp.com must serve for OS-level link verification, and how to
+  test before they are deployed.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Mh7aEUCzPYeZsRePJd657R
+---
+ README.md                                     |   1 +
+ .../src/androidMain/AndroidManifest.xml       |  28 ++
+ .../jupiterp/jupiterpmobile/MainActivity.kt   |  22 ++
+ .../kotlin/com/jupiterp/jupiterpmobile/App.kt |  11 +
+ .../data/repository/ScheduleRepository.kt     |  34 ++
+ .../deeplink/DeepLinkHandler.kt               |  33 ++
+ .../jupiterpmobile/deeplink/ShareLink.kt      | 304 ++++++++++++++++++
+ .../jupiterpmobile/ui/screens/MainScreen.kt   |  10 +
+ .../ui/screens/MainViewModel.kt               |  75 +++++
+ .../jupiterp/jupiterpmobile/ShareLinkTest.kt  | 273 ++++++++++++++++
+ docs/DEEP_LINKS.md                            | 105 ++++++
+ iosApp/iosApp.xcodeproj/project.pbxproj       |   3 +
+ iosApp/iosApp/Info.plist                      |  13 +
+ iosApp/iosApp/iOSApp.swift                    |  13 +-
+ iosApp/iosApp/iosApp.entitlements             |  11 +
+ 15 files changed, 935 insertions(+), 1 deletion(-)
+ create mode 100644 composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/DeepLinkHandler.kt
+ create mode 100644 composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/ShareLink.kt
+ create mode 100644 composeApp/src/commonTest/kotlin/com/jupiterp/jupiterpmobile/ShareLinkTest.kt
+ create mode 100644 docs/DEEP_LINKS.md
+ create mode 100644 iosApp/iosApp/iosApp.entitlements
+
+diff --git a/README.md b/README.md
+index 232691d..3d1e4d6 100644
+--- a/README.md
++++ b/README.md
+@@ -21,6 +21,7 @@ Contact @Chase-Fournier to get into the beta tests on IOS and Android
+ - **Schedule Builder** — Visual weekly grid (8am–10pm) with pastel color-coded blocks and automatic conflict detection
+ - **Calendar Export** — Adds recurring weekly events directly to the device calendar (EventKit on iOS, calendar app import on Android)
+ - **Save / Load Schedules** — Save multiple named schedules and restore them later
++- **Shared Schedule Links** — Opening a `jupiterp.com/?s=…` share link (or `jupiterp://`) on a device with the app installed imports the schedule as a new saved schedule; see [docs/DEEP_LINKS.md](docs/DEEP_LINKS.md)
+ - **Single-Screen Design** — Schedule is always visible; search panel slides up from the bottom
+ 
+ ## Architecture
+diff --git a/composeApp/src/androidMain/AndroidManifest.xml b/composeApp/src/androidMain/AndroidManifest.xml
+index 51be058..9e49522 100644
+--- a/composeApp/src/androidMain/AndroidManifest.xml
++++ b/composeApp/src/androidMain/AndroidManifest.xml
+@@ -21,12 +21,40 @@
+         <activity
+             android:exported="true"
+             android:name=".MainActivity"
++            android:launchMode="singleTask"
+             android:windowSoftInputMode="adjustNothing">
+             <intent-filter>
+                 <action android:name="android.intent.action.MAIN" />
+ 
+                 <category android:name="android.intent.category.LAUNCHER" />
+             </intent-filter>
++
++            <!--
++                App Links for shared schedules (https://jupiterp.com/?s=...).
++                autoVerify requires jupiterp.com to serve
++                /.well-known/assetlinks.json listing this app's package and
++                signing cert; see docs/DEEP_LINKS.md.
++            -->
++            <intent-filter android:autoVerify="true">
++                <action android:name="android.intent.action.VIEW" />
++
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++
++                <data android:scheme="https" />
++                <data android:host="jupiterp.com" />
++                <data android:host="www.jupiterp.com" />
++            </intent-filter>
++
++            <!-- Custom-scheme fallback that needs no domain verification. -->
++            <intent-filter>
++                <action android:name="android.intent.action.VIEW" />
++
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++
++                <data android:scheme="jupiterp" />
++            </intent-filter>
+         </activity>
+ 
+         <provider
+diff --git a/composeApp/src/androidMain/kotlin/com/jupiterp/jupiterpmobile/MainActivity.kt b/composeApp/src/androidMain/kotlin/com/jupiterp/jupiterpmobile/MainActivity.kt
+index d969d6e..2e93075 100644
+--- a/composeApp/src/androidMain/kotlin/com/jupiterp/jupiterpmobile/MainActivity.kt
++++ b/composeApp/src/androidMain/kotlin/com/jupiterp/jupiterpmobile/MainActivity.kt
+@@ -1,10 +1,12 @@
+ package com.jupiterp.jupiterpmobile
+ 
++import android.content.Intent
+ import android.os.Bundle
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import androidx.activity.enableEdgeToEdge
+ import com.jupiterp.jupiterpmobile.data.storage.AndroidContextHolder
++import com.jupiterp.jupiterpmobile.deeplink.DeepLinkHandler
+ 
+ /**
+  * Main Activity for Android
+@@ -21,8 +23,28 @@ class MainActivity : ComponentActivity() {
+         // and can shadow enableEdgeToEdge's smart system-bar styling.
+         enableEdgeToEdge()
+ 
++        // Only on a fresh launch: on recreation (e.g. rotation) the original
++        // intent is re-delivered, and re-posting it would import a shared
++        // schedule twice.
++        if (savedInstanceState == null) {
++            handleDeepLink(intent)
++        }
++
+         setContent {
+             App()
+         }
+     }
++
++    // Deliveries while the app is already running (launchMode="singleTask")
++    override fun onNewIntent(intent: Intent) {
++        super.onNewIntent(intent)
++        setIntent(intent)
++        handleDeepLink(intent)
++    }
++
++    private fun handleDeepLink(intent: Intent?) {
++        if (intent?.action == Intent.ACTION_VIEW) {
++            intent.dataString?.let { DeepLinkHandler.onDeepLink(it) }
++        }
++    }
+ }
+\ No newline at end of file
+diff --git a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/App.kt b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/App.kt
+index 2dfa042..024e7a4 100644
+--- a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/App.kt
++++ b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/App.kt
+@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
+ import androidx.compose.ui.Modifier
+ import androidx.lifecycle.viewmodel.compose.viewModel
+ import com.jupiterp.jupiterpmobile.data.repository.PreferencesRepository
++import com.jupiterp.jupiterpmobile.deeplink.DeepLinkHandler
+ import com.jupiterp.jupiterpmobile.di.allModules
+ import com.jupiterp.jupiterpmobile.ui.screens.MainScreen
+ import com.jupiterp.jupiterpmobile.ui.screens.MainViewModel
+@@ -44,6 +45,16 @@ fun App() {
+                 val koin = getKoin()
+                 var showGenerator by remember { mutableStateOf(false) }
+ 
++                // Deep links are imported by MainViewModel, which only exists
++                // while MainScreen is composed — so leave the generator if a
++                // link arrives while it is open.
++                val pendingDeepLink by DeepLinkHandler.pendingUrl.collectAsState()
++                LaunchedEffect(pendingDeepLink) {
++                    if (pendingDeepLink != null) {
++                        showGenerator = false
++                    }
++                }
++
+                 if (showGenerator) {
+                     val generatorViewModel: GeneratorViewModel =
+                         viewModel { koin.get<GeneratorViewModel>() }
+diff --git a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/data/repository/ScheduleRepository.kt b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/data/repository/ScheduleRepository.kt
+index 420a0d4..40aeb7b 100644
+--- a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/data/repository/ScheduleRepository.kt
++++ b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/data/repository/ScheduleRepository.kt
+@@ -9,6 +9,7 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleBlock
+ import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+ import com.jupiterp.jupiterpmobile.domain.model.Section
+ import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
++import kotlinx.coroutines.CompletableDeferred
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.SupervisorJob
+@@ -48,6 +49,9 @@ class ScheduleRepository(
+     @Volatile
+     private var userMutated = false
+ 
++    // Completed (successfully or not) once the init load has finished.
++    private val initialLoad = CompletableDeferred<Unit>()
++
+     init {
+         // Load saved data on init
+         scope.launch {
+@@ -64,10 +68,23 @@ class ScheduleRepository(
+                 }
+             } catch (e: Exception) {
+                 _errors.tryEmit("Couldn't load your saved schedules")
++            } finally {
++                initialLoad.complete(Unit)
+             }
+         }
+     }
+ 
++    /**
++     * Suspend until the init load from storage has finished. Programmatic
++     * writes that race app startup (e.g. importing a schedule from a deep
++     * link) must wait on this: a save issued before the load completes marks
++     * the repository user-mutated, which discards the not-yet-loaded stored
++     * schedules and then overwrites them on disk.
++     */
++    suspend fun awaitInitialLoad() {
++        initialLoad.await()
++    }
++
+     /**
+      * Add a section to the current schedule
+      */
+@@ -327,6 +344,23 @@ class ScheduleRepository(
+     companion object {
+         const val PLACEHOLDER_SECTION_CODE = "---"
+ 
++        /**
++         * The first name of the form `base`, `base 2`, `base 3`, … not taken
++         * by an existing schedule (mirrors the web planner's naming when it
++         * imports a shared schedule).
++         */
++        fun uniqueScheduleName(base: String, takenNames: Collection<String>): String {
++            val taken = takenNames.toSet()
++            if (base !in taken) {
++                return base
++            }
++            var n = 2
++            while ("$base $n" in taken) {
++                n++
++            }
++            return "$base $n"
++        }
++
+         private val weekdays = listOf(
+             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+             DayOfWeek.THURSDAY, DayOfWeek.FRIDAY
+diff --git a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/DeepLinkHandler.kt b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/DeepLinkHandler.kt
+new file mode 100644
+index 0000000..1f53c1c
+--- /dev/null
++++ b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/DeepLinkHandler.kt
+@@ -0,0 +1,33 @@
++package com.jupiterp.jupiterpmobile.deeplink
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/**
++ * Process-wide hand-off point between platform deep link entry points and
++ * shared code.
++ *
++ * Platform code (Android's `MainActivity`, iOS's `iOSApp.swift`) pushes
++ * incoming URLs here via [onDeepLink]; the URL is held until shared code is
++ * ready to act on it, which covers cold starts where the link arrives before
++ * Compose (and the ViewModel that imports shared schedules) exists. The
++ * consumer clears the pending link with [consume] so it is handled exactly
++ * once.
++ */
++object DeepLinkHandler {
++    private val _pendingUrl = MutableStateFlow<String?>(null)
++
++    /** The most recent unconsumed deep link URL, or `null` if there is none. */
++    val pendingUrl: StateFlow<String?> = _pendingUrl.asStateFlow()
++
++    /** Called from platform entry points with the full URL that opened the app. */
++    fun onDeepLink(url: String) {
++        _pendingUrl.value = url
++    }
++
++    /** Mark the pending link as handled so it isn't re-processed. */
++    fun consume() {
++        _pendingUrl.value = null
++    }
++}
+diff --git a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/ShareLink.kt b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/ShareLink.kt
+new file mode 100644
+index 0000000..eaa5467
+--- /dev/null
++++ b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/ShareLink.kt
+@@ -0,0 +1,304 @@
++package com.jupiterp.jupiterpmobile.deeplink
++
++import com.jupiterp.jupiterpmobile.domain.model.Course
++import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
++
++/**
++ * A decoded (courseCode, sectionCode) pair from a shared schedule link.
++ */
++data class CourseSectionPair(
++    val courseCode: String,
++    val sectionCode: String
++)
++
++/**
++ * Encodes and decodes a schedule as a short, shareable URL token, matching
++ * the Jupiterp web format (`https://jupiterp.com/?s=2~CMSC4Aq8z.MATH8nP2k`).
++ *
++ * This is a direct port of the web app's `ShareLink.ts`, so links generated
++ * by either client decode identically on both. A schedule is fully
++ * reconstructable from an ordered list of (courseCode, sectionCode) pairs;
++ * all other section data is re-fetched live from the API when the link is
++ * opened. These functions are pure so they can be unit tested directly.
++ */
++object ShareLink {
++    /** Query parameter that carries a shared schedule, e.g. `?s=2~CMSC4Aq8z`. */
++    const val SHARE_PARAM = "s"
++
++    /**
++     * Schema version emitted by [encodeSchedule]. [decodeSchedule] understands
++     * every version listed below, so links shared under an older format keep
++     * working after a bump.
++     *
++     * - `1` — readable literal pairs: `1~CMSC131-0101.MATH140-0501`
++     * - `2` — dept letters + a base62-packed number/section token (this version)
++     */
++    private const val SCHEMA_VERSION = "2"
++
++    /** Separates encoded course segments from each other. */
++    private const val PAIR_SEPARATOR = '.'
++
++    /** Separates a courseCode from a sectionCode in a literal (fallback) segment. */
++    private const val FIELD_SEPARATOR = '-'
++
++    /** Separates the schema version from the payload. */
++    private const val VERSION_SEPARATOR = '~'
++
++    /**
++     * Base62 alphabet (URL-unreserved, and notably free of `-`, which lets the
++     * v2 decoder tell a packed segment apart from a literal `course-section` one).
++     */
++    private const val BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
++
++    /**
++     * Width of a packed token. A course packs into 29 bits (10 number + 5 suffix +
++     * 14 section), and 62^5 comfortably covers that, so every packed token is
++     * exactly 5 chars — which is what lets the decoder split dept (everything
++     * before) from the packed value (the last 5 chars) without a delimiter.
++     */
++    private const val PACKED_WIDTH = 5
++
++    // Bit layout of a packed course: [ number:10 | suffix:5 | section:14 ].
++    private const val SECTION_BITS = 14
++    private const val SUFFIX_BITS = 5
++
++    /** Matches a "standard" course code: dept letters, a 3-digit number, optional 1-letter suffix. */
++    private val PACKABLE_COURSE = Regex("^([A-Za-z]+)(\\d{3})([A-Za-z]?)$")
++
++    /** A packable section is exactly four digits, e.g. `0101`. */
++    private val PACKABLE_SECTION = Regex("^\\d{4}$")
++
++    /** Encode `n` as a fixed-width base62 string (left-padded with `0`s). */
++    private fun toBase62(n: Int, width: Int): String {
++        var value = n
++        val out = CharArray(width)
++        for (i in width - 1 downTo 0) {
++            out[i] = BASE62[value % 62]
++            value /= 62
++        }
++        return out.concatToString()
++    }
++
++    /** Decode a base62 string, or return `-1` if it contains an invalid character. */
++    private fun fromBase62(s: String): Int {
++        var n = 0
++        for (ch in s) {
++            val digit = BASE62.indexOf(ch)
++            if (digit == -1) {
++                return -1
++            }
++            n = n * 62 + digit
++        }
++        return n
++    }
++
++    /**
++     * Encode one selection as the shortest segment that round-trips exactly:
++     * `DEPT` + a 5-char packed token for standard codes, or the literal
++     * `courseCode-sectionCode` for anything that doesn't fit the packable shape
++     * (4-digit numbers, lettered sections, etc.).
++     */
++    private fun encodeSegment(courseCode: String, sectionCode: String): String {
++        val course = PACKABLE_COURSE.matchEntire(courseCode)
++        if (course != null && PACKABLE_SECTION.matches(sectionCode)) {
++            val (dept, numberText, suffixText) = course.destructured
++            val number = numberText.toInt()
++            val suffix = if (suffixText.isNotEmpty()) {
++                suffixText.uppercase()[0].code - 64 // A=1..Z=26
++            } else {
++                0
++            }
++            val section = sectionCode.toInt()
++            val packed = (number shl (SUFFIX_BITS + SECTION_BITS)) or
++                (suffix shl SECTION_BITS) or
++                section
++            return dept + toBase62(packed, PACKED_WIDTH)
++        }
++        return "$courseCode$FIELD_SEPARATOR$sectionCode"
++    }
++
++    /**
++     * Encode a schedule's course selections into a compact, URL-safe token.
++     *
++     * The token uses only RFC 3986 "unreserved" characters, so it never needs
++     * percent-encoding.
++     *
++     * @param pairs The (courseCode, sectionCode) pairs to encode, in order.
++     * @return A token like `2~CMSC4Aq8z.MATH...`, or `""` if there is nothing
++     *         to share.
++     */
++    fun encodeSchedule(pairs: List<CourseSectionPair>): String {
++        if (pairs.isEmpty()) {
++            return ""
++        }
++        val segments = pairs.map { encodeSegment(it.courseCode, it.sectionCode) }
++        return "$SCHEMA_VERSION$VERSION_SEPARATOR${segments.joinToString(PAIR_SEPARATOR.toString())}"
++    }
++
++    /** Decode a literal `courseCode-sectionCode` segment, or `null` if malformed. */
++    private fun decodeLiteralSegment(token: String): CourseSectionPair? {
++        // Course codes never contain `-`, so the last `-` splits course/section.
++        val split = token.lastIndexOf(FIELD_SEPARATOR)
++        if (split <= 0 || split == token.length - 1) {
++            return null
++        }
++        return CourseSectionPair(
++            courseCode = token.substring(0, split),
++            sectionCode = token.substring(split + 1)
++        )
++    }
++
++    /** Decode a `DEPT` + packed-token segment, or `null` if malformed. */
++    private fun decodePackedSegment(token: String): CourseSectionPair? {
++        val dept = token.dropLast(PACKED_WIDTH)
++        if (dept.isEmpty()) {
++            return null
++        }
++        val packed = fromBase62(token.takeLast(PACKED_WIDTH))
++        if (packed < 0) {
++            return null
++        }
++
++        val number = (packed shr (SUFFIX_BITS + SECTION_BITS)) and 0x3ff // 10 bits
++        val suffix = (packed shr SECTION_BITS) and 0x1f // 5 bits
++        val section = packed and 0x3fff // 14 bits
++        val suffixLetter = if (suffix in 1..26) ('@' + suffix).toString() else ""
++
++        return CourseSectionPair(
++            courseCode = dept + number.toString().padStart(3, '0') + suffixLetter,
++            sectionCode = section.toString().padStart(4, '0')
++        )
++    }
++
++    /** v1 payload: literal pairs only. */
++    private fun decodeV1(payload: String): List<CourseSectionPair> =
++        payload.split(PAIR_SEPARATOR).mapNotNull { decodeLiteralSegment(it) }
++
++    /** v2 payload: a segment with `-` is literal; otherwise it is packed. */
++    private fun decodeV2(payload: String): List<CourseSectionPair> =
++        payload.split(PAIR_SEPARATOR).mapNotNull { token ->
++            when {
++                token.contains(FIELD_SEPARATOR) -> decodeLiteralSegment(token)
++                token.length > PACKED_WIDTH -> decodePackedSegment(token)
++                else -> null
++            }
++        }
++
++    /**
++     * Decode a share token back into the course/section pairs it represents.
++     *
++     * Tolerant of malformed input: an unrecognized version or any unparseable
++     * segment yields `[]` (or skips just that segment) rather than throwing, so
++     * a broken or truncated link degrades gracefully instead of crashing.
++     * Older schema versions still decode, so previously-shared links keep
++     * working.
++     *
++     * @param param The raw token from the `s` query parameter.
++     * @return The decoded pairs (possibly empty).
++     */
++    fun decodeSchedule(param: String): List<CourseSectionPair> {
++        if (param.isEmpty()) {
++            return emptyList()
++        }
++
++        val versionEnd = param.indexOf(VERSION_SEPARATOR)
++        if (versionEnd == -1) {
++            return emptyList()
++        }
++
++        val version = param.substring(0, versionEnd)
++        val payload = param.substring(versionEnd + 1)
++        if (payload.isEmpty()) {
++            return emptyList()
++        }
++
++        return when (version) {
++            "1" -> decodeV1(payload)
++            "2" -> decodeV2(payload)
++            else -> emptyList()
++        }
++    }
++
++    /**
++     * Pull the share token out of a full deep link URL, e.g.
++     * `https://jupiterp.com/?s=2~CMSC4Aq8z` or `jupiterp://open?s=2~CMSC4Aq8z`.
++     *
++     * Parsed by hand so it works identically in common code for any scheme,
++     * and tolerates URLs with fragments or unrelated query parameters.
++     *
++     * @return The raw (percent-decoded) token, or `null` if the URL has no
++     *         non-empty `s` parameter.
++     */
++    fun extractShareToken(url: String): String? {
++        val query = url.substringAfter('?', "").substringBefore('#')
++        if (query.isEmpty()) {
++            return null
++        }
++        for (param in query.split('&')) {
++            val eq = param.indexOf('=')
++            if (eq <= 0) {
++                continue
++            }
++            if (percentDecode(param.substring(0, eq)) == SHARE_PARAM) {
++                val value = percentDecode(param.substring(eq + 1))
++                if (value.isNotEmpty()) {
++                    return value
++                }
++            }
++        }
++        return null
++    }
++
++    /**
++     * Minimal percent-decoder. Share tokens only use unreserved ASCII, so a
++     * single-byte decode is sufficient; malformed escapes pass through as-is.
++     */
++    private fun percentDecode(s: String): String {
++        if ('%' !in s) {
++            return s
++        }
++        val sb = StringBuilder(s.length)
++        var i = 0
++        while (i < s.length) {
++            val c = s[i]
++            if (c == '%' && i + 2 < s.length) {
++                val hex = s.substring(i + 1, i + 3).toIntOrNull(16)
++                if (hex != null) {
++                    sb.append(hex.toChar())
++                    i += 3
++                    continue
++                }
++            }
++            sb.append(c)
++            i++
++        }
++        return sb.toString()
++    }
++
++    /**
++     * Reconstruct full [ScheduleSelection]s from decoded pairs and
++     * freshly-fetched course data. Pairs whose course or section no longer
++     * exist are silently skipped, so a stale link still opens whatever is
++     * still valid. Color indices are assigned sequentially.
++     *
++     * This is pure: the caller is responsible for fetching `coursesByCode`.
++     */
++    fun buildSharedSelections(
++        pairs: List<CourseSectionPair>,
++        coursesByCode: Map<String, Course>
++    ): List<ScheduleSelection> {
++        val result = mutableListOf<ScheduleSelection>()
++        for (pair in pairs) {
++            val course = coursesByCode[pair.courseCode] ?: continue
++            val section = course.sections?.find { it.sectionCode == pair.sectionCode } ?: continue
++            result.add(
++                ScheduleSelection(
++                    course = course,
++                    section = section,
++                    colorIndex = result.size
++                )
++            )
++        }
++        return result
++    }
++}
+diff --git a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainScreen.kt b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainScreen.kt
+index dcea121..3d3ff27 100644
+--- a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainScreen.kt
++++ b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainScreen.kt
+@@ -78,6 +78,7 @@ fun MainScreen(
+     val savedSchedules by viewModel.savedSchedules.collectAsState()
+     val snackbarMessage by viewModel.snackbarMessage.collectAsState()
+     val instructorSuggestions by viewModel.instructorSuggestions.collectAsState()
++    val showSavedSchedulesRequest by viewModel.showSavedSchedulesRequest.collectAsState()
+ 
+     val snackbarHostState = remember { SnackbarHostState() }
+     val searchFocusRequester = remember { FocusRequester() }
+@@ -98,6 +99,15 @@ fun MainScreen(
+         }
+     }
+ 
++    // A schedule imported from a shared link was just saved; open the sheet
++    // that lists saved schedules so the user can switch to it.
++    LaunchedEffect(showSavedSchedulesRequest) {
++        if (showSavedSchedulesRequest) {
++            showSettings = true
++            viewModel.consumeSavedSchedulesRequest()
++        }
++    }
++
+     // Save schedule dialog
+     if (showSaveDialog) {
+         SaveScheduleDialog(
+diff --git a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainViewModel.kt b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainViewModel.kt
+index a896821..72b34cd 100644
+--- a/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainViewModel.kt
++++ b/composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/ui/screens/MainViewModel.kt
+@@ -15,6 +15,8 @@ import com.jupiterp.jupiterpmobile.domain.model.ScheduleSelection
+ import com.jupiterp.jupiterpmobile.domain.model.Section
+ import com.jupiterp.jupiterpmobile.domain.model.StoredSchedule
+ import com.jupiterp.jupiterpmobile.addToCalendar
++import com.jupiterp.jupiterpmobile.deeplink.DeepLinkHandler
++import com.jupiterp.jupiterpmobile.deeplink.ShareLink
+ import com.jupiterp.jupiterpmobile.hasKnownSemesterDates
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.delay
+@@ -91,6 +93,11 @@ class MainViewModel(
+     private val _isSearchFocused = MutableStateFlow(false)
+     val isSearchFocused: StateFlow<Boolean> = _isSearchFocused.asStateFlow()
+ 
++    // Set after a shared schedule is imported from a deep link; asks the UI to
++    // open the saved-schedules sheet so the user can switch to it.
++    private val _showSavedSchedulesRequest = MutableStateFlow(false)
++    val showSavedSchedulesRequest: StateFlow<Boolean> = _showSavedSchedulesRequest.asStateFlow()
++
+     // Instructor ratings cache
+     private val _instructorRatings = MutableStateFlow<Map<String, Instructor>>(emptyMap())
+     val instructorRatings: StateFlow<Map<String, Instructor>> = _instructorRatings.asStateFlow()
+@@ -125,6 +132,74 @@ class MainViewModel(
+         viewModelScope.launch {
+             scheduleRepository.errors.collect { showSnackbar(it) }
+         }
++        viewModelScope.launch {
++            DeepLinkHandler.pendingUrl.collect { url ->
++                if (url != null) {
++                    DeepLinkHandler.consume()
++                    importSharedSchedule(url)
++                }
++            }
++        }
++    }
++
++    /**
++     * Import a schedule shared via a jupiterp.com link (`?s=2~CMSC4Aq8z...`).
++     * The decoded sections are re-fetched from the API, saved as a new named
++     * schedule ("Shared schedule", numbered if taken), and the saved-schedules
++     * sheet is opened so the user can switch to it. The user's current
++     * schedule is left untouched.
++     */
++    private fun importSharedSchedule(url: String) {
++        val token = ShareLink.extractShareToken(url) ?: return
++        val pairs = ShareLink.decodeSchedule(token)
++        if (pairs.isEmpty()) {
++            showSnackbar("This schedule link isn't valid")
++            return
++        }
++
++        viewModelScope.launch {
++            courseRepository.getCoursesByCodes(pairs.map { it.courseCode }.distinct())
++                .onSuccess { courses ->
++                    val selections = ShareLink.buildSharedSelections(
++                        pairs,
++                        courses.associateBy { it.courseCode }
++                    )
++                    if (selections.isEmpty()) {
++                        showSnackbar("The shared schedule's sections are no longer offered")
++                        return@onSuccess
++                    }
++
++                    // Saving before the stored schedules finish loading would
++                    // wipe them (see awaitInitialLoad), so wait it out.
++                    scheduleRepository.awaitInitialLoad()
++                    val name = ScheduleRepository.uniqueScheduleName(
++                        "Shared schedule",
++                        scheduleRepository.savedSchedules.value.map { it.name }
++                    )
++                    scheduleRepository.saveSchedule(name, selections)
++
++                    val skipped = pairs.size - selections.size
++                    showSnackbar(
++                        if (skipped > 0) {
++                            "Saved \"$name\" — $skipped section(s) no longer offered"
++                        } else {
++                            "Saved shared schedule as \"$name\""
++                        }
++                    )
++                    _showSavedSchedulesRequest.value = true
++                }
++                .onFailure {
++                    showSnackbar("Couldn't load the shared schedule — check your connection and reopen the link")
++                }
++        }
++    }
++
++    /**
++     * Called by the UI once it has opened the saved-schedules sheet in
++     * response to [showSavedSchedulesRequest].
++     */
++    fun consumeSavedSchedulesRequest() {
++        _showSavedSchedulesRequest.value = false
+     }
+ 
+     /**
+diff --git a/composeApp/src/commonTest/kotlin/com/jupiterp/jupiterpmobile/ShareLinkTest.kt b/composeApp/src/commonTest/kotlin/com/jupiterp/jupiterpmobile/ShareLinkTest.kt
+new file mode 100644
+index 0000000..455e3ed
+--- /dev/null
++++ b/composeApp/src/commonTest/kotlin/com/jupiterp/jupiterpmobile/ShareLinkTest.kt
+@@ -0,0 +1,273 @@
++package com.jupiterp.jupiterpmobile
++
++import com.jupiterp.jupiterpmobile.data.repository.ScheduleRepository
++import com.jupiterp.jupiterpmobile.deeplink.CourseSectionPair
++import com.jupiterp.jupiterpmobile.deeplink.ShareLink
++import com.jupiterp.jupiterpmobile.domain.model.Course
++import com.jupiterp.jupiterpmobile.domain.model.Section
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++import kotlin.test.assertTrue
++
++/**
++ * Tests for the shared-schedule link codec. Mirrors the web app's
++ * ShareLink.test.ts so both clients keep decoding the same links identically.
++ */
++class ShareLinkTest {
++
++    private fun pair(courseCode: String, sectionCode: String) =
++        CourseSectionPair(courseCode, sectionCode)
++
++    private fun course(courseCode: String, sectionCodes: List<String>) = Course(
++        courseCode = courseCode,
++        name = "$courseCode Name",
++        minCredits = 3,
++        maxCredits = null,
++        description = "desc",
++        genEds = null,
++        conditions = null,
++        sections = sectionCodes.map { sectionCode ->
++            Section(
++                courseCode = courseCode,
++                sectionCode = sectionCode,
++                instructors = listOf("Prof X"),
++                meetings = emptyList(),
++                openSeats = 0,
++                totalSeats = 0,
++                waitlist = 0,
++                holdfile = null
++            )
++        }
++    )
++
++    // --- encodeSchedule ---
++
++    @Test
++    fun encodeEmitsCurrentSchemaVersionPrefix() {
++        val token = ShareLink.encodeSchedule(listOf(pair("CMSC131", "0101")))
++        assertTrue(token.startsWith("2~"))
++    }
++
++    @Test
++    fun encodeReturnsEmptyStringForNoPairs() {
++        assertEquals("", ShareLink.encodeSchedule(emptyList()))
++    }
++
++    @Test
++    fun encodeUsesOnlyUrlUnreservedCharacters() {
++        val token = ShareLink.encodeSchedule(
++            listOf(pair("CMSC351H", "9901"), pair("MATH140", "0501"))
++        )
++        assertTrue(Regex("^[A-Za-z0-9\\-._~]+$").matches(token))
++    }
++
++    @Test
++    fun encodePacksStandardCodesShorterThanLiteralForm() {
++        val pairs = listOf(
++            pair("CMSC131", "0101"),
++            pair("MATH140", "0501"),
++            pair("ENGL101", "0301"),
++            pair("HIST200", "0201")
++        )
++        val literalLength =
++            "1~${pairs.joinToString(".") { "${it.courseCode}-${it.sectionCode}" }}".length
++        assertTrue(ShareLink.encodeSchedule(pairs).length < literalLength)
++    }
++
++    @Test
++    fun encodeMatchesWebImplementationTokens() {
++        // Vectors computed with the web planner's ShareLink.ts, so a drift in
++        // either port shows up as a broken link between the two clients.
++        assertEquals(
++            "2~CMSC4eBHR.MATH4xyuD.ENGL3aBav",
++            ShareLink.encodeSchedule(
++                listOf(pair("CMSC131", "0101"), pair("MATH140", "0501"), pair("ENGL101", "0301"))
++            )
++        )
++        assertEquals(
++            "2~CMSCCSk0L",
++            ShareLink.encodeSchedule(listOf(pair("CMSC351H", "9901")))
++        )
++    }
++
++    @Test
++    fun decodesWebImplementationTokens() {
++        assertEquals(
++            listOf(pair("CMSC131", "0101"), pair("MATH140", "0501"), pair("ENGL101", "0301")),
++            ShareLink.decodeSchedule("2~CMSC4eBHR.MATH4xyuD.ENGL3aBav")
++        )
++        assertEquals(
++            listOf(pair("CMSC351H", "9901")),
++            ShareLink.decodeSchedule("2~CMSCCSk0L")
++        )
++    }
++
++    // --- encode/decode round-trip (v2) ---
++
++    @Test
++    fun roundTripsPackableCodesExactly() {
++        val cases = listOf(
++            pair("CMSC131", "0101"),
++            pair("MATH140", "0501"),
++            pair("CMSC351H", "9901"), // 1-letter suffix
++            pair("BMGT110", "0000"), // all-zero section
++            pair("PHYS161", "9999") // max section
++        )
++        for (case in cases) {
++            val token = ShareLink.encodeSchedule(listOf(case))
++            assertEquals(listOf(case), ShareLink.decodeSchedule(token), "case: $case")
++        }
++    }
++
++    @Test
++    fun roundTripsMultiCourseScheduleInOrder() {
++        val pairs = listOf(
++            pair("CMSC131", "0101"),
++            pair("MATH140", "0501"),
++            pair("ENGL101", "0301")
++        )
++        assertEquals(pairs, ShareLink.decodeSchedule(ShareLink.encodeSchedule(pairs)))
++    }
++
++    @Test
++    fun fallsBackToLiteralSegmentForNonStandardCodesAndRoundTrips() {
++        // 4-digit number, and a lettered section: neither is packable.
++        val pairs = listOf(pair("AASP1000", "FC01"), pair("CMSC131", "0101"))
++        val token = ShareLink.encodeSchedule(pairs)
++        assertTrue(token.contains("AASP1000-FC01"))
++        assertEquals(pairs, ShareLink.decodeSchedule(token))
++    }
++
++    // --- decodeSchedule ---
++
++    @Test
++    fun decodesLegacyV1LiteralLinks() {
++        assertEquals(
++            listOf(pair("CMSC131", "0101"), pair("MATH140", "0501")),
++            ShareLink.decodeSchedule("1~CMSC131-0101.MATH140-0501")
++        )
++    }
++
++    @Test
++    fun rejectsUnknownSchemaVersion() {
++        assertEquals(emptyList(), ShareLink.decodeSchedule("9~CMSC131-0101"))
++    }
++
++    @Test
++    fun returnsEmptyForEmptyOrMalformedInput() {
++        assertEquals(emptyList(), ShareLink.decodeSchedule(""))
++        assertEquals(emptyList(), ShareLink.decodeSchedule("CMSC131-0101"))
++        assertEquals(emptyList(), ShareLink.decodeSchedule("1~"))
++        assertEquals(emptyList(), ShareLink.decodeSchedule("2~"))
++    }
++
++    @Test
++    fun skipsUnparseableV1SegmentsButKeepsValidOnes() {
++        assertEquals(
++            listOf(pair("CMSC131", "0101"), pair("MATH140", "0501")),
++            ShareLink.decodeSchedule("1~CMSC131-0101.garbage.MATH140-0501")
++        )
++    }
++
++    // --- extractShareToken ---
++
++    @Test
++    fun extractsTokenFromWebLink() {
++        assertEquals(
++            "2~CMSC4Aq8z.MATH8nP2k.ENGL1xR0w",
++            ShareLink.extractShareToken("https://jupiterp.com/?s=2~CMSC4Aq8z.MATH8nP2k.ENGL1xR0w")
++        )
++    }
++
++    @Test
++    fun extractsTokenFromCustomSchemeLink() {
++        assertEquals(
++            "2~CMSC4Aq8z",
++            ShareLink.extractShareToken("jupiterp://open?s=2~CMSC4Aq8z")
++        )
++    }
++
++    @Test
++    fun extractsTokenAmongOtherParamsAndFragment() {
++        assertEquals(
++            "2~CMSC4Aq8z",
++            ShareLink.extractShareToken("https://www.jupiterp.com/?utm_source=x&s=2~CMSC4Aq8z&y=1#top")
++        )
++    }
++
++    @Test
++    fun extractsPercentEncodedToken() {
++        // `~` never needs escaping, but some apps re-encode URLs anyway.
++        assertEquals(
++            "2~CMSC4Aq8z",
++            ShareLink.extractShareToken("https://jupiterp.com/?s=2%7ECMSC4Aq8z")
++        )
++    }
++
++    @Test
++    fun extractReturnsNullWithoutShareParam() {
++        assertNull(ShareLink.extractShareToken("https://jupiterp.com/"))
++        assertNull(ShareLink.extractShareToken("https://jupiterp.com/?other=1"))
++        assertNull(ShareLink.extractShareToken("https://jupiterp.com/?s="))
++        assertNull(ShareLink.extractShareToken("https://jupiterp.com/?season=fall"))
++    }
++
++    // --- buildSharedSelections ---
++
++    private val coursesByCode = mapOf(
++        "CMSC131" to course("CMSC131", listOf("0101", "0201")),
++        "MATH140" to course("MATH140", listOf("0501"))
++    )
++
++    @Test
++    fun reconstructsSelectionsInOrderWithSequentialColors() {
++        val built = ShareLink.buildSharedSelections(
++            listOf(pair("CMSC131", "0101"), pair("MATH140", "0501")),
++            coursesByCode
++        )
++        assertEquals(listOf("CMSC131", "MATH140"), built.map { it.course.courseCode })
++        assertEquals(listOf("0101", "0501"), built.map { it.section.sectionCode })
++        assertEquals(listOf(0, 1), built.map { it.colorIndex })
++    }
++
++    @Test
++    fun skipsPairsWhoseCourseOrSectionNoLongerExists() {
++        val built = ShareLink.buildSharedSelections(
++            listOf(
++                pair("CMSC131", "9999"), // missing section
++                pair("BMGT110", "0101"), // missing course
++                pair("MATH140", "0501") // valid
++            ),
++            coursesByCode
++        )
++        assertEquals(1, built.size)
++        assertEquals("MATH140", built[0].course.courseCode)
++        assertEquals(0, built[0].colorIndex)
++    }
++
++    // --- uniqueScheduleName ---
++
++    @Test
++    fun uniqueNameUsesBaseWhenAvailable() {
++        assertEquals(
++            "Shared schedule",
++            ScheduleRepository.uniqueScheduleName("Shared schedule", listOf("My schedule"))
++        )
++    }
++
++    @Test
++    fun uniqueNameNumbersFromTwoWhenBaseTaken() {
++        assertEquals(
++            "Shared schedule 2",
++            ScheduleRepository.uniqueScheduleName("Shared schedule", listOf("Shared schedule"))
++        )
++        assertEquals(
++            "Shared schedule 3",
++            ScheduleRepository.uniqueScheduleName(
++                "Shared schedule",
++                listOf("Shared schedule", "Shared schedule 2")
++            )
++        )
++    }
++}
+diff --git a/docs/DEEP_LINKS.md b/docs/DEEP_LINKS.md
+new file mode 100644
+index 0000000..e863971
+--- /dev/null
++++ b/docs/DEEP_LINKS.md
+@@ -0,0 +1,105 @@
++# Deep links: shared schedules
++
++The web planner ([atcupps/Jupiterp](https://github.com/atcupps/Jupiterp), PR #933) shares a
++schedule as a compact token in the `s` query parameter:
++
++```
++https://jupiterp.com/?s=2~CMSC4Aq8z.MATH8nP2k.ENGL1xR0w
++```
++
++Opening one of these links on a device with the app installed opens the app instead of the
++browser. The app decodes the token, re-fetches the courses from the API, saves the result as a
++new schedule named **"Shared schedule"** (numbered if that name is taken), and opens the
++saved-schedules sheet so the user can switch to it. The user's current schedule is never
++replaced.
++
++## Token format (schema v2)
++
++`2` `~` segment `.` segment `.` … — one course per segment, `~` separates the schema version,
++`.` separates segments.
++
++A standard course (`DEPT` + 3-digit number + optional 1-letter suffix, 4-digit section) packs
++into `DEPT` + a fixed 5-char base62 token holding a 29-bit integer laid out as
++`[number:10 | suffix:5 | section:14]` — e.g. `CMSC131` section `0101` → `CMSC4Aq8z`. Anything
++else falls back to the literal `courseCode-sectionCode` form (which is also all schema v1
++emits). The decoder in
++`composeApp/src/commonMain/kotlin/com/jupiterp/jupiterpmobile/deeplink/ShareLink.kt` is a
++direct port of the web app's `ShareLink.ts` and understands both versions.
++
++## What the app registers
++
++- **Android** (`composeApp/src/androidMain/AndroidManifest.xml`): an
++  `autoVerify` App Links intent filter for `https://jupiterp.com` and
++  `https://www.jupiterp.com`, plus a `jupiterp://` custom-scheme fallback.
++- **iOS** (`iosApp/`): Associated Domains entitlement `applinks:jupiterp.com` /
++  `applinks:www.jupiterp.com` (Universal Links), plus a `jupiterp://` custom URL scheme in
++  `Info.plist`.
++
++Both platforms funnel the URL into `DeepLinkHandler.onDeepLink(url)` in common code
++(`MainActivity` on Android, `iOSApp.swift` on iOS), and `MainViewModel` performs the import.
++
++## Server-side requirement (jupiterp.com)
++
++OS-level link interception only activates once jupiterp.com publishes the association files.
++Until then, `jupiterp://` links still work everywhere, Android < 12 offers the app in the
++open-with chooser, and users can enable the domain manually under
++*App info → Open by default*. These files belong in the website repo
++(`atcupps/Jupiterp`), served over HTTPS with no redirects:
++
++### `https://jupiterp.com/.well-known/assetlinks.json` (Android)
++
++```json
++[
++  {
++    "relation": ["delegate_permission/common.handle_all_urls"],
++    "target": {
++      "namespace": "android_app",
++      "package_name": "com.jupiterp.jupiterpmobile",
++      "sha256_cert_fingerprints": ["<SHA-256 fingerprint of the release signing cert>"]
++    }
++  }
++]
++```
++
++Get the fingerprint from Play Console → *Setup → App signing* (use the **app signing key**
++certificate, since Play re-signs uploads), or for a local keystore:
++`keytool -list -v -keystore <keystore> | grep SHA256`.
++
++### `https://jupiterp.com/.well-known/apple-app-site-association` (iOS)
++
++Served as `application/json`, **without** a file extension:
++
++```json
++{
++  "applinks": {
++    "details": [
++      {
++        "appIDs": ["7P2ZTVF379.com.jupiterp.Jupiterpmobile"],
++        "components": [
++          { "/": "/", "?": { "s": "?*" }, "comment": "Shared schedule links" }
++        ]
++      }
++    ]
++  }
++}
++```
++
++`7P2ZTVF379` is the Apple Developer Team ID already configured in the Xcode project. The
++`components` rule scopes Universal Links to `/?s=...` so ordinary browsing of jupiterp.com is
++left to the browser; broaden it if the app should capture more routes later. Serve the same
++files on `www.jupiterp.com` (or redirect-free equivalents) since both hosts are registered.
++
++## Testing without the association files
++
++```bash
++# Android emulator/device (custom scheme, works immediately):
++adb shell am start -a android.intent.action.VIEW \
++  -d "jupiterp://open?s=2~CMSC4Aq8z.MATH8nP2k"
++
++# Android App Link, forcing verification off (or enable the domain in App info):
++adb shell am start -a android.intent.action.VIEW \
++  -d "https://jupiterp.com/?s=2~CMSC4Aq8z.MATH8nP2k" com.jupiterp.jupiterpmobile
++
++# iOS simulator (custom scheme):
++xcrun simctl openurl booted "jupiterp://open?s=2~CMSC4Aq8z.MATH8nP2k"
++```
+diff --git a/iosApp/iosApp.xcodeproj/project.pbxproj b/iosApp/iosApp.xcodeproj/project.pbxproj
+index 1d2002c..82fdd62 100644
+--- a/iosApp/iosApp.xcodeproj/project.pbxproj
++++ b/iosApp/iosApp.xcodeproj/project.pbxproj
+@@ -15,6 +15,7 @@
+ 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+ 			membershipExceptions = (
+ 				Info.plist,
++				iosApp.entitlements,
+ 			);
+ 			target = 8E611BC41990526AB4CCD260 /* iosApp */;
+ 		};
+@@ -174,6 +175,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
++				CODE_SIGN_ENTITLEMENTS = iosApp/iosApp.entitlements;
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Automatic;
+ 				CURRENT_PROJECT_VERSION = 4;
+@@ -332,6 +334,7 @@
+ 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+ 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
++				CODE_SIGN_ENTITLEMENTS = iosApp/iosApp.entitlements;
+ 				CODE_SIGN_IDENTITY = "Apple Development";
+ 				CODE_SIGN_STYLE = Automatic;
+ 				CURRENT_PROJECT_VERSION = 4;
+diff --git a/iosApp/iosApp/Info.plist b/iosApp/iosApp/Info.plist
+index 0819919..22e8652 100644
+--- a/iosApp/iosApp/Info.plist
++++ b/iosApp/iosApp/Info.plist
+@@ -13,5 +13,18 @@
+ 	<string>Jupiterp adds your class schedule directly to your Calendar app.</string>
+ 	<key>NSCalendarsFullAccessUsageDescription</key>
+ 	<string>Jupiterp adds your class schedule directly to your Calendar app.</string>
++	<key>CFBundleURLTypes</key>
++	<array>
++		<dict>
++			<key>CFBundleTypeRole</key>
++			<string>Editor</string>
++			<key>CFBundleURLName</key>
++			<string>com.jupiterp.Jupiterpmobile</string>
++			<key>CFBundleURLSchemes</key>
++			<array>
++				<string>jupiterp</string>
++			</array>
++		</dict>
++	</array>
+ </dict>
+ </plist>
+diff --git a/iosApp/iosApp/iOSApp.swift b/iosApp/iosApp/iOSApp.swift
+index d83dca6..eb6241f 100644
+--- a/iosApp/iosApp/iOSApp.swift
++++ b/iosApp/iosApp/iOSApp.swift
+@@ -1,10 +1,21 @@
+ import SwiftUI
++import ComposeApp
+ 
+ @main
+ struct iOSApp: App {
+     var body: some Scene {
+         WindowGroup {
+             ContentView()
++                // Custom scheme links (jupiterp://...)
++                .onOpenURL { url in
++                    DeepLinkHandler.shared.onDeepLink(url: url.absoluteString)
++                }
++                // Universal Links (https://jupiterp.com/?s=...)
++                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
++                    if let url = activity.webpageURL {
++                        DeepLinkHandler.shared.onDeepLink(url: url.absoluteString)
++                    }
++                }
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/iosApp/iosApp/iosApp.entitlements b/iosApp/iosApp/iosApp.entitlements
+new file mode 100644
+index 0000000..10f4d79
+--- /dev/null
++++ b/iosApp/iosApp/iosApp.entitlements
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>com.apple.developer.associated-domains</key>
++	<array>
++		<string>applinks:jupiterp.com</string>
++		<string>applinks:www.jupiterp.com</string>
++	</array>
++</dict>
++</plist>
+-- 
+2.43.0
+
