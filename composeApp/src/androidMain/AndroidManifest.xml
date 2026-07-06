@@ -21,11 +21,39 @@
         <activity
             android:exported="true"
             android:name=".MainActivity"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+                App Links for shared schedules (https://jupiterp.com/?s=...).
+                autoVerify requires jupiterp.com to serve
+                /.well-known/assetlinks.json listing this app's package and
+                signing cert; see docs/DEEP_LINKS.md.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="jupiterp.com" />
+                <data android:host="www.jupiterp.com" />
+            </intent-filter>
+
+            <!-- Custom-scheme fallback that needs no domain verification. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="jupiterp" />
             </intent-filter>
         </activity>
 

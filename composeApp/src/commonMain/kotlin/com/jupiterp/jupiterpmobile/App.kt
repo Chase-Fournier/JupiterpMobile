@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jupiterp.jupiterpmobile.data.repository.PreferencesRepository
+import com.jupiterp.jupiterpmobile.deeplink.DeepLinkHandler
 import com.jupiterp.jupiterpmobile.di.allModules
 import com.jupiterp.jupiterpmobile.ui.screens.MainScreen
 import com.jupiterp.jupiterpmobile.ui.screens.MainViewModel
@@ -43,6 +44,16 @@ fun App() {
                 // configuration changes and onCleared() actually runs.
                 val koin = getKoin()
                 var showGenerator by remember { mutableStateOf(false) }
+
+                // Deep links are imported by MainViewModel, which only exists
+                // while MainScreen is composed — so leave the generator if a
+                // link arrives while it is open.
+                val pendingDeepLink by DeepLinkHandler.pendingUrl.collectAsState()
+                LaunchedEffect(pendingDeepLink) {
+                    if (pendingDeepLink != null) {
+                        showGenerator = false
+                    }
+                }
 
                 if (showGenerator) {
                     val generatorViewModel: GeneratorViewModel =

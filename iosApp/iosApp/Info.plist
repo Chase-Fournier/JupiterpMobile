@@ -13,5 +13,18 @@
 	<string>Jupiterp adds your class schedule directly to your Calendar app.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Jupiterp adds your class schedule directly to your Calendar app.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.jupiterp.Jupiterpmobile</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jupiterp</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
